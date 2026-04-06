@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Imported static SPA bundles:
+    "public/assets/**",
+    "public/v1/**",
   ]),
 ]);
 
