@@ -1,5 +1,5 @@
-import LoginForm from "../../components/forms/LoginForm";
+import { redirect } from "next/navigation";
 
-export default function LoginPage() {
-  return <LoginForm />;
+export default function LoginRedirectPage() {
+  redirect("/auth/login");
 }

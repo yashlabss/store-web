@@ -1,7 +1,7 @@
 import { Suspense } from "react";
-import LoginForm from "../../../components/forms/LoginForm";
+import SignupForm from "../../components/forms/SignupForm";
 
-export default function AuthLoginPage() {
+export default function SignupPage() {
   return (
     <Suspense
       fallback={
@@ -10,7 +10,7 @@ export default function AuthLoginPage() {
         </div>
       }
     >
-      <LoginForm />
+      <SignupForm />
     </Suspense>
   );
 }
