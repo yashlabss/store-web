@@ -9,7 +9,7 @@ export default function HomePage() {
           <span className="text-3xl font-bold text-slate-900">Creator Store</span>
         </div>
         <h1 className="text-2xl font-bold text-[#1f1b4b] sm:text-3xl">
-          Full-stack demo
+          Web Development Full-stack demo
         </h1>
         <p className="mt-3 text-slate-600">
           Next.js frontend, Express API, and Supabase (Postgres) running locally.
