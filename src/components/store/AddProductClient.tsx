@@ -768,7 +768,7 @@ export default function AddProductClient({
         </p>
       ) : null}
 
-      <div className="mt-6 flex flex-wrap gap-2">
+      <div className="mt-6 flex flex-wrap" style={{ gap: "7px" }}>
         <button
           type="button"
           className={tabClass("thumbnail")}
@@ -820,27 +820,64 @@ export default function AddProductClient({
             <h2 className="text-base font-bold text-slate-900">
               1<span className="ml-2 font-semibold">Pick a style</span>
             </h2>
-            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="mt-4 flex flex-wrap gap-3">
               {(
                 [
-                  { key: "button" as const, label: "Button", hint: "Minimal CTA" },
-                  { key: "callout" as const, label: "Callout", hint: "Card layout" },
-                  { key: "preview" as const, label: "Preview", hint: "Rich preview" },
+                  {
+                    key: "button" as const,
+                    label: "Button",
+                    hint: "Minimal CTA",
+                    icon: (
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        <rect x="2" y="8" width="20" height="8" rx="4" />
+                        <path d="M8 12h8" />
+                      </svg>
+                    ),
+                  },
+                  {
+                    key: "callout" as const,
+                    label: "Callout",
+                    hint: "Card layout",
+                    icon: (
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                        <path d="M8 10h8M8 14h5" />
+                      </svg>
+                    ),
+                  },
+                  {
+                    key: "preview" as const,
+                    label: "Preview",
+                    hint: "Rich preview",
+                    icon: (
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
+                    ),
+                  },
                 ] as const
               ).map((opt) => (
                 <button
                   key={opt.key}
                   type="button"
                   onClick={() => setStyle(opt.key)}
-                  className={`flex flex-col items-center rounded-2xl border-2 px-4 py-5 text-center transition ${
+                  className={`flex w-fit flex-col items-center gap-1.5 rounded-xl border-2 px-4 py-3 transition ${
                     style === opt.key
                       ? "border-violet-500 bg-violet-50/80"
                       : "border-slate-200 bg-white hover:border-slate-300"
                   }`}
                 >
-                  <div className="mb-3 h-12 w-full max-w-[72px] rounded-lg bg-slate-100" aria-hidden />
-                  <span className="font-semibold text-slate-900">{opt.label}</span>
-                  <span className="mt-1 text-xs text-slate-500">{opt.hint}</span>
+                  <div
+                    className={`flex h-8 w-8 items-center justify-center rounded-lg ${
+                      style === opt.key ? "text-violet-600" : "text-slate-400"
+                    }`}
+                    style={{ backgroundColor: style === opt.key ? "#ede9fe" : "#f1f5f9" }}
+                    aria-hidden
+                  >
+                    {opt.icon}
+                  </div>
+                  <span className="text-sm font-semibold text-slate-900">{opt.label}</span>
                 </button>
               ))}
             </div>
@@ -870,18 +907,16 @@ export default function AddProductClient({
                   <IconPencil />
                 </button>
               </div>
-              <div className="min-w-0 flex-1">
-                <p className="font-semibold text-slate-900">Listing thumbnail</p>
-                <p className="text-sm text-slate-500">400×400 recommended</p>
+              <div className="flex min-w-0 flex-1 flex-col items-center gap-1.5 text-center">
+                <p className="text-xs font-semibold text-slate-700">Thumbnail</p>
+                <p className="text-xs text-slate-400">400 x 400</p>
                 {thumbnailImageFileName ? (
-                  <p className="mt-1 truncate text-xs text-slate-600">{thumbnailImageFileName}</p>
+                  <p className="truncate text-xs text-slate-500">{thumbnailImageFileName}</p>
                 ) : null}
-              </div>
-              <div>
                 <button
                   type="button"
                   onClick={() => thumbnailFileRef.current?.click()}
-                  className="rounded-xl border-2 px-5 py-2.5 text-sm font-bold"
+                  className="mt-1 rounded-lg border-2 px-3 py-1.5 text-xs font-bold"
                   style={{ borderColor: PURPLE, color: PURPLE }}
                 >
                   Choose Image
@@ -1293,19 +1328,22 @@ export default function AddProductClient({
         </div>
       )}
 
-      <div className="mt-10 flex flex-col gap-4 border-t border-slate-100 pt-8 sm:flex-row sm:items-center sm:justify-between">
-        <button
-          type="button"
-          className="text-sm italic text-slate-400 underline-offset-2 hover:text-slate-600 hover:underline"
-        >
-          Improve this page
-        </button>
+      <div className="mt-10 border-t border-slate-100 pt-8">
+        <div className="mb-3 flex justify-end">
+          <button
+            type="button"
+            className="text-sm italic text-slate-400 underline-offset-2 hover:text-slate-600 hover:underline"
+          >
+            Improve this page
+          </button>
+        </div>
         <div className="flex flex-wrap items-center justify-end gap-3">
           <button
             type="button"
             disabled={saving || Boolean(toast)}
             onClick={() => void handleSaveDraft()}
-            className="inline-flex items-center justify-center gap-2 rounded-full border-2 bg-white px-6 py-3 text-sm font-bold transition disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-2 border-2 bg-white px-6 py-3 text-sm font-bold transition disabled:opacity-50"
+              style={{ borderRadius: "8px" }}
             style={{ borderColor: PURPLE, color: PURPLE }}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
@@ -1331,7 +1369,8 @@ export default function AddProductClient({
                 ensureCheckoutDefaults();
                 setActiveTab("checkout");
               }}
-              className="rounded-full border-2 border-slate-200 bg-white px-6 py-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50 disabled:opacity-50"
+              className="bg-blue-600 px-12 py-3 text-sm font-bold text-white transition hover:bg-blue-400 disabled:opacity-50"
+              style={{ borderRadius: "8px" }}
             >
               Next
             </button>

@@ -239,13 +239,13 @@ export default function DashboardShell({
 
         <div className="flex min-h-0 flex-1 flex-col lg:min-w-0 lg:flex-row">
           <main
-            className="min-w-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-10 lg:py-8 [scrollbar-gutter:stable]"
+            className="min-w-0 flex-1 overflow-y-auto px-5 py-6 lg:py-8 [scrollbar-gutter:stable]"
           >
-            <div className="mx-auto max-w-[720px]">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="w-full">
+              <div className="flex w-full items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">{topLeft}</div>
-                <div className="flex min-w-0 items-center gap-2 sm:max-w-[50%] sm:justify-end sm:pt-1">
-                  <span className="truncate text-sm font-medium text-slate-600">{storeUrl}</span>
+                <div className="ml-auto flex shrink-0 items-center gap-2">
+                  <span className="text-sm font-medium text-slate-600">{storeUrl}</span>
                   <button
                     type="button"
                     onClick={() => void copyStoreUrl()}
