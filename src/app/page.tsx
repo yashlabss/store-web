@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+
 export default function HomePage() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-[#f4f5f7] px-4">
@@ -9,7 +10,7 @@ export default function HomePage() {
           <span className="text-3xl font-bold text-slate-900">Creator Store</span>
         </div>
         <h1 className="text-2xl font-bold text-[#1f1b4b] sm:text-3xl">
-          Web Development Full-stack demo
+          Store
         </h1>
         <p className="mt-3 text-slate-600">
           Next.js frontend, Express API, and Supabase (Postgres) running locally.
