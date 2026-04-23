@@ -80,11 +80,6 @@ function AddProductPageInner() {
     void loadUser();
   }, [loadUser]);
 
-  const signOut = () => {
-    localStorage.removeItem("auth_token");
-    router.push("/auth/login");
-  };
-
   if (loading) {
     return <LoadingShell />;
   }
@@ -122,7 +117,7 @@ function AddProductPageInner() {
     );
   }
 
-  return <AddProductClient user={user} onSignOut={signOut} />;
+  return <AddProductClient user={user} />;
 }
 
 export default function AddProductPage() {

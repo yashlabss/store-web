@@ -7,4 +7,4 @@ export function publicStoreUrl(handle: string) {
 }
 
 /** Shown next to copy (not the browser path). */
-export const DISPLAY_STORE_DOMAIN = "yash.store";
+export const DISPLAY_STORE_DOMAIN = "localhost:3001";

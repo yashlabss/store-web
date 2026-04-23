@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import DashboardShell, { PURPLE } from "../dashboard/DashboardShell";
-import { IconChevronLeft } from "../dashboard/dashboardIcons";
+import { PURPLE } from "../dashboard/DashboardShell";
 
 export type PlaceholderSlug = "coaching" | "course" | "community";
 
@@ -33,10 +32,10 @@ const COPY: Record<
 
 type Props = {
   slug: PlaceholderSlug;
-  displayName: string;
-  handle: string;
-  showName: string;
-  onSignOut: () => void;
+  displayName?: string;
+  handle?: string;
+  showName?: string;
+  onSignOut?: () => void;
 };
 
 function DummyStat({ label, value }: { label: string; value: string }) {
@@ -50,39 +49,11 @@ function DummyStat({ label, value }: { label: string; value: string }) {
 
 export default function PlaceholderProductTypeClient({
   slug,
-  displayName,
-  handle,
-  showName,
-  onSignOut,
 }: Props) {
   const meta = COPY[slug];
 
   return (
-    <DashboardShell
-      displayName={displayName}
-      handle={handle}
-      showName={showName}
-      onSignOut={onSignOut}
-      navContext="add-product"
-      topLeft={
-        <div className="flex flex-wrap items-center gap-2">
-          <Link
-            href="/dashboard/store/product/add"
-            className="flex items-center gap-1 text-slate-500 hover:text-slate-800"
-            aria-label="Back to product types"
-          >
-            <IconChevronLeft />
-          </Link>
-          <nav className="flex flex-wrap items-center gap-2 text-[15px]">
-            <Link href="/dashboard" className="font-medium text-slate-500 hover:text-slate-800">
-              My Store
-            </Link>
-            <span className="text-slate-400">/</span>
-            <span className="font-bold text-slate-900">{meta.title}</span>
-          </nav>
-        </div>
-      }
-    >
+    <div className="mx-auto max-w-[920px]">
       <div className="mt-8 rounded-2xl border border-dashed border-slate-200 bg-white p-6 shadow-sm sm:p-8">
         <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Preview · not live</p>
         <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">{meta.title}</h2>
@@ -118,6 +89,6 @@ export default function PlaceholderProductTypeClient({
           ← Choose another type
         </Link>
       </div>
-    </DashboardShell>
+    </div>
   );
 }

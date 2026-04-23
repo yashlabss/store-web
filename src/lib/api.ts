@@ -21,3 +21,50 @@ export const API_PRODUCTS_BASE = API_BASE_URL
 export const API_PUBLIC_BASE = API_BASE_URL
   ? `${API_BASE_URL}/api/public`
   : "/api/public";
+
+/** Digital products: `/api/digital-products` */
+export const API_DIGITAL_PRODUCTS_BASE = API_BASE_URL
+  ? `${API_BASE_URL}/api/digital-products`
+  : "/api/digital-products";
+
+/** Payments: `/api/payments` */
+export const API_PAYMENTS_BASE = API_BASE_URL
+  ? `${API_BASE_URL}/api/payments`
+  : "/api/payments";
+
+/** Audience / subscribers: `/api/audience` */
+export const API_AUDIENCE_BASE = API_BASE_URL
+  ? `${API_BASE_URL}/api/audience`
+  : "/api/audience";
+
+/** Analytics: `/api/analytics` */
+export const API_ANALYTICS_BASE = API_BASE_URL
+  ? `${API_BASE_URL}/api/analytics`
+  : "/api/analytics";
+
+/** Integrations status: `/api/integrations` */
+export const API_INTEGRATIONS_BASE = API_BASE_URL
+  ? `${API_BASE_URL}/api/integrations`
+  : "/api/integrations";
+
+/** Landing pages + store design: `/api/landing-pages` */
+export const API_LANDING_PAGES_BASE = API_BASE_URL
+  ? `${API_BASE_URL}/api/landing-pages`
+  : "/api/landing-pages";
+
+/**
+ * Authenticated fetch — automatically attaches the Bearer token from localStorage.
+ * Safe to call on the server (token will be null, no Authorization header is sent).
+ */
+export async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const token =
+    typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+  return fetch(url, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers ?? {}),
+    },
+  });
+}

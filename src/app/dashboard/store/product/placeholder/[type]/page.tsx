@@ -101,11 +101,6 @@ function PlaceholderPageInner() {
     }
   }, [loading, raw, router]);
 
-  const signOut = () => {
-    localStorage.removeItem("auth_token");
-    router.push("/auth/login");
-  };
-
   if (loading) {
     return <LoadingShell />;
   }
@@ -163,7 +158,6 @@ function PlaceholderPageInner() {
       displayName={displayName}
       handle={handle}
       showName={showName}
-      onSignOut={signOut}
     />
   );
 }

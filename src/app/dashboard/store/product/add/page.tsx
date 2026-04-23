@@ -82,11 +82,6 @@ function ChooseProductTypePageInner() {
     void loadUser();
   }, [loadUser]);
 
-  const signOut = () => {
-    localStorage.removeItem("auth_token");
-    router.push("/auth/login");
-  };
-
   if (loading) {
     return <LoadingShell />;
   }
@@ -135,7 +130,6 @@ function ChooseProductTypePageInner() {
       displayName={displayName}
       handle={handle}
       showName={showName}
-      onSignOut={signOut}
     />
   );
 }

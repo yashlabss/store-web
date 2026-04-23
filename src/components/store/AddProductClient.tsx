@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import DashboardShell, { PURPLE } from "../dashboard/DashboardShell";
+import { PURPLE } from "../dashboard/DashboardShell";
 import {
   IconCart,
   IconChevronLeft,
@@ -58,6 +58,8 @@ type CheckoutJsonShape = {
   digital_delivery?: "upload" | "redirect";
   digital_redirect_url?: string;
   digital_file_name?: string | null;
+  /** Base64 data URL for exact uploaded file binary delivery. */
+  digital_file_data_url?: string | null;
   custom_fields?: string[];
   /** Hero image for checkout preview (data URL or remote). Listing uses `thumbnail_url`. */
   checkout_image_url?: string | null;
@@ -276,17 +278,13 @@ function CheckoutMobilePreview({
 
 export default function AddProductClient({
   user,
-  onSignOut,
 }: {
   user: UserRow;
-  onSignOut: () => void;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
   const handle = (user.username || "creator").trim();
-  const displayName = user.full_name?.trim() || handle.charAt(0).toUpperCase() + handle.slice(1);
-  const showName = handle.charAt(0).toUpperCase() + handle.slice(1);
 
   const [activeTab, setActiveTab] = useState<TabKey>("thumbnail");
   const [style, setStyle] = useState<StyleKey>("callout");
@@ -305,6 +303,7 @@ export default function AddProductClient({
   const [digitalDelivery, setDigitalDelivery] = useState<"upload" | "redirect">("upload");
   const [digitalRedirectUrl, setDigitalRedirectUrl] = useState("");
   const [digitalFileName, setDigitalFileName] = useState<string | null>(null);
+  const [digitalFileDataUrl, setDigitalFileDataUrl] = useState<string | null>(null);
   const [customCheckoutFields, setCustomCheckoutFields] = useState<string[]>([]);
 
   /** Saved as `thumbnail_url` — My Store listing & thumbnail-tab card. */
@@ -358,6 +357,7 @@ export default function AddProductClient({
       digitalDelivery,
       digitalRedirectUrl,
       digitalFileName,
+      digitalFileDataUrl,
       customCheckoutFields,
       thumbnailDataUrl,
       checkoutImageDataUrl,
@@ -387,6 +387,7 @@ export default function AddProductClient({
     digitalDelivery,
     digitalRedirectUrl,
     digitalFileName,
+    digitalFileDataUrl,
     customCheckoutFields,
     thumbnailDataUrl,
     checkoutImageDataUrl,
@@ -432,6 +433,7 @@ export default function AddProductClient({
     }
     if (typeof cj.digital_redirect_url === "string") setDigitalRedirectUrl(cj.digital_redirect_url);
     if (typeof cj.digital_file_name === "string") setDigitalFileName(cj.digital_file_name);
+    if (typeof cj.digital_file_data_url === "string") setDigitalFileDataUrl(cj.digital_file_data_url);
     if (Array.isArray(cj.custom_fields) && cj.custom_fields.every((x) => typeof x === "string")) {
       setCustomCheckoutFields(cj.custom_fields);
     }
@@ -485,6 +487,7 @@ export default function AddProductClient({
     setDigitalDelivery("upload");
     setDigitalRedirectUrl("");
     setDigitalFileName(null);
+    setDigitalFileDataUrl(null);
     setCustomCheckoutFields([]);
     setThumbnailDataUrl(null);
     setCheckoutImageDataUrl(null);
@@ -522,6 +525,7 @@ export default function AddProductClient({
         digital_delivery: digitalDelivery,
         digital_redirect_url: digitalRedirectUrl,
         digital_file_name: digitalFileName,
+        digital_file_data_url: digitalFileDataUrl,
         custom_fields: customCheckoutFields,
         checkout_image_url: checkoutImageDataUrl,
       },
@@ -551,6 +555,7 @@ export default function AddProductClient({
     digitalDelivery,
     digitalRedirectUrl,
     digitalFileName,
+    digitalFileDataUrl,
     customCheckoutFields,
   ]);
 
@@ -628,7 +633,7 @@ export default function AddProductClient({
     setToast("Draft saved. Taking you to My Store…");
     window.setTimeout(() => {
       setToast(null);
-      router.push("/dashboard");
+      router.push("/dashboard/store");
     }, TOAST_THEN_NAV_MS);
   };
 
@@ -643,7 +648,7 @@ export default function AddProductClient({
     setToast("Published! Your product is live. Taking you to My Store…");
     window.setTimeout(() => {
       setToast(null);
-      router.push("/dashboard");
+      router.push("/dashboard/store");
     }, TOAST_THEN_NAV_MS);
   };
 
@@ -666,56 +671,18 @@ export default function AddProductClient({
 
   return (
     <>
-    <DashboardShell
-      displayName={displayName}
-      handle={handle}
-      showName={showName}
-      onSignOut={onSignOut}
-      navContext="add-product"
-      topLeft={
-        <div className="flex flex-wrap items-center gap-2">
-          <Link
-            href="/dashboard"
-            className="flex items-center gap-1 text-slate-500 hover:text-slate-800"
-            aria-label="Back to My Store"
-          >
-            <IconChevronLeft />
+    <div className="mx-auto w-full max-w-[1180px]">
+      <div className="mb-5">
+        <nav className="flex flex-wrap items-center gap-2 text-[15px]">
+          <Link href="/dashboard/store" className="font-medium text-slate-500 hover:text-slate-800">
+            My Store
           </Link>
-          <nav className="flex flex-wrap items-center gap-2 text-[15px]">
-            <Link href="/dashboard" className="font-medium text-slate-500 hover:text-slate-800">
-              My Store
-            </Link>
-            <span className="text-slate-400">/</span>
-            <span className="font-bold text-slate-900">Add New Product</span>
-          </nav>
-        </div>
-      }
-      preview={
-        activeTab === "checkout" ? (
-          <CheckoutMobilePreview
-            heroUrl={checkoutHeroPreviewUrl}
-            title={title}
-            descriptionBody={descriptionBody}
-            listPrice={listPrice}
-            payPrice={payPrice}
-            showDiscount={showDiscountUi}
-            bottomTitle={bottomTitle}
-            purchaseCta={purchaseCta}
-            customFieldLabels={customCheckoutFields}
-          />
-        ) : (
-          <ProductLivePreview
-            style={style}
-            imageUrl={listingImageUrl}
-            title={title}
-            subtitle={subtitle}
-            buttonText={buttonText}
-            price={price}
-            fileLabel={fileLabel}
-          />
-        )
-      }
-    >
+          <span className="text-slate-400">/</span>
+          <span className="font-bold text-slate-900">Add New Product</span>
+        </nav>
+      </div>
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div>
       <input
         ref={thumbnailFileRef}
         type="file"
@@ -741,6 +708,12 @@ export default function AddProductClient({
           const file = e.target.files?.[0];
           if (!file) return;
           setDigitalFileName(file.name);
+          const reader = new FileReader();
+          reader.onload = () => {
+            const res = typeof reader.result === "string" ? reader.result : null;
+            setDigitalFileDataUrl(res);
+          };
+          reader.readAsDataURL(file);
         }}
         aria-hidden
       />
@@ -1338,7 +1311,34 @@ export default function AddProductClient({
           ) : null}
         </div>
       </div>
-    </DashboardShell>
+      </div>
+      <aside className="lg:sticky lg:top-20 lg:self-start">
+        {activeTab === "checkout" ? (
+          <CheckoutMobilePreview
+            heroUrl={checkoutHeroPreviewUrl}
+            title={title}
+            descriptionBody={descriptionBody}
+            listPrice={listPrice}
+            payPrice={payPrice}
+            showDiscount={showDiscountUi}
+            bottomTitle={bottomTitle}
+            purchaseCta={purchaseCta}
+            customFieldLabels={customCheckoutFields}
+          />
+        ) : (
+          <ProductLivePreview
+            style={style}
+            imageUrl={listingImageUrl}
+            title={title}
+            subtitle={subtitle}
+            buttonText={buttonText}
+            price={price}
+            fileLabel={fileLabel}
+          />
+        )}
+      </aside>
+      </div>
+    </div>
     {toast ? (
       <div
         className="fixed bottom-8 left-1/2 z-[100] max-w-[min(100vw-2rem,24rem)] -translate-x-1/2 rounded-2xl bg-slate-900 px-5 py-3.5 text-center text-sm font-medium text-white shadow-lg"

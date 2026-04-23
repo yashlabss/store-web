@@ -2,14 +2,13 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
-import DashboardShell, { PURPLE } from "../dashboard/DashboardShell";
-import { IconChevronLeft } from "../dashboard/dashboardIcons";
+import { PURPLE } from "../dashboard/DashboardShell";
 
 type Props = {
-  displayName: string;
-  handle: string;
-  showName: string;
-  onSignOut: () => void;
+  displayName?: string;
+  handle?: string;
+  showName?: string;
+  onSignOut?: () => void;
 };
 
 type ProductTypeCard = {
@@ -100,37 +99,9 @@ const CARDS: ProductTypeCard[] = [
 ];
 
 export default function ChooseProductTypeClient({
-  displayName,
-  handle,
-  showName,
-  onSignOut,
 }: Props) {
   return (
-    <DashboardShell
-      displayName={displayName}
-      handle={handle}
-      showName={showName}
-      onSignOut={onSignOut}
-      navContext="add-product"
-      topLeft={
-        <div className="flex flex-wrap items-center gap-2">
-          <Link
-            href="/dashboard"
-            className="flex items-center gap-1 text-slate-500 hover:text-slate-800"
-            aria-label="Back to My Store"
-          >
-            <IconChevronLeft />
-          </Link>
-          <nav className="flex flex-wrap items-center gap-2 text-[15px]">
-            <Link href="/dashboard" className="font-medium text-slate-500 hover:text-slate-800">
-              My Store
-            </Link>
-            <span className="text-slate-400">/</span>
-            <span className="font-bold text-slate-900">Add a new product</span>
-          </nav>
-        </div>
-      }
-    >
+    <div className="mx-auto max-w-[920px]">
       <div className="mt-8">
         <h2 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
           What are you selling?
@@ -174,6 +145,6 @@ export default function ChooseProductTypeClient({
           })}
         </ul>
       </div>
-    </DashboardShell>
+    </div>
   );
 }
