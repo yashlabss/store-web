@@ -2,609 +2,277 @@
 
 import Link from "next/link";
 import { useCallback, useState } from "react";
-import { usePathname } from "next/navigation";
+import {
+  IconArrowUpRight,
+  IconBag,
+  IconChart,
+  IconClose,
+  IconCopy,
+  IconGear,
+  IconHeart,
+  IconHome,
+  IconMenu,
+  IconPlane,
+  IconPlusSm,
+  IconSparkle,
+  IconStoreTab,
+  IconWallet,
+} from "./dashboardIcons";
 
-// ---------------------------------------------------------------------------
-// Brand colour
-// ---------------------------------------------------------------------------
-export const BRAND = "#6b46ff";
-/** Backwards-compat alias */
-export const PURPLE = BRAND;
+const PURPLE = "#6b46ff";
 export const SIDEBAR_BG = "#f3f4fd";
 
-// ---------------------------------------------------------------------------
-// Inline SVG icons — no external dependency
-// ---------------------------------------------------------------------------
-function IconBolt({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />
-    </svg>
-  );
-}
-export function IconHome({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M3 9.5 12 3l9 6.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1V9.5z" />
-    </svg>
-  );
-}
-export function IconBag({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M6 7h12l-1 13H7L6 7z" />
-      <path d="M9 7V5a3 3 0 0 1 6 0v2" />
-    </svg>
-  );
-}
-export function IconWallet({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M6 4h12M6 9h12M12 9l-4 11M6 4a5 5 0 0 1 5 5H6" />
-    </svg>
-  );
-}
-export function IconChart({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M18 20V10M12 20V4M6 20v-6" />
-    </svg>
-  );
-}
-function IconUsers({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <circle cx="9" cy="7" r="3" />
-      <path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" />
-      <path d="M16 3.1a4 4 0 0 1 0 7.8M21 21v-2a4 4 0 0 0-3-3.85" />
-    </svg>
-  );
-}
-function IconMail({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <rect x="2" y="4" width="20" height="16" rx="2" />
-      <path d="m2 7 10 7 10-7" />
-    </svg>
-  );
-}
-function IconCalendar({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <rect x="3" y="4" width="18" height="18" rx="2" />
-      <path d="M16 2v4M8 2v4M3 10h18" />
-    </svg>
-  );
-}
-function IconLink({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-    </svg>
-  );
-}
-export function IconGear({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <circle cx="12" cy="12" r="3" />
-      <path d="M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" />
-    </svg>
-  );
-}
-function IconUserCircle({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <circle cx="12" cy="12" r="10" />
-      <circle cx="12" cy="8" r="3" />
-      <path d="M5.5 20c1.8-3.5 11.2-3.5 13 0" />
-    </svg>
-  );
-}
-export function IconCopy({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <rect x="9" y="9" width="13" height="13" rx="2" />
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-    </svg>
-  );
-}
-function IconCheck({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M20 6 9 17l-5-5" />
-    </svg>
-  );
-}
-export function IconMenu({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
-      <path d="M4 6h16M4 12h16M4 18h10" />
-    </svg>
-  );
-}
-export function IconClose({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
-      <path d="M18 6 6 18M6 6l12 12" />
-    </svg>
-  );
-}
-function IconLogOut({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
-    </svg>
-  );
-}
-// Backwards-compat icon re-exports used by other modules
-export function IconArrowUpRight({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M7 17 17 7M7 7h10v10" />
-    </svg>
-  );
-}
-export function IconSparkle({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M12 3v2M12 19v2M3 12h2M19 12h2" />
-      <path d="M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  );
-}
-export function IconStoreTab({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M3 9h18v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9z" />
-      <path d="M3 9V7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2" />
-      <path d="M9 14h6" />
-    </svg>
-  );
-}
+export type NavContext = "store-home" | "add-product" | "income";
 
-// ---------------------------------------------------------------------------
-// Types — we support BOTH the old prop interface and new prop interface
-// ---------------------------------------------------------------------------
-
-/** New interface: used by the dashboard layout wrapper. */
-type NewProps = {
-  children: React.ReactNode;
-  /** If provided, new-style rendering is used. */
-  user: { username: string; email: string; full_name: string } | null;
-  title?: string;
+type NavItem = {
+  id: string;
+  label: string;
+  Icon: React.ComponentType<{ className?: string }>;
+  href: string;
+  active?: boolean;
+  useLink?: boolean;
 };
 
-/** Old interface: used by individual pages that manage their own auth. */
-export type LegacyProps = {
-  children: React.ReactNode;
+function navItems(ctx: NavContext): NavItem[] {
+  const storeActive = ctx === "store-home" || ctx === "add-product";
+  const incomeActive = ctx === "income";
+  return [
+    { id: "home", label: "Home", Icon: IconHome, href: "/", useLink: true },
+    {
+      id: "store",
+      label: "My Store",
+      Icon: IconBag,
+      href: "/dashboard",
+      active: storeActive,
+      useLink: true,
+    },
+    {
+      id: "income",
+      label: "Income",
+      Icon: IconWallet,
+      href: "/dashboard/income",
+      active: incomeActive,
+      useLink: true,
+    },
+    { id: "analytics", label: "Analytics", Icon: IconChart, href: "#" },
+    { id: "customers", label: "Customers", Icon: IconHeart, href: "#" },
+    { id: "autodm", label: "AutoDM", Icon: IconPlane, href: "#" },
+    { id: "more", label: "More", Icon: IconPlusSm, href: "#" },
+  ];
+}
+
+function LogoMark() {
+  return (
+    <div
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[15px] font-bold text-white shadow-sm"
+      style={{ backgroundColor: PURPLE }}
+    >
+      $
+    </div>
+  );
+}
+
+type DashboardShellProps = {
   displayName: string;
   handle: string;
   showName: string;
   onSignOut: () => void;
+  /** Top-left header area (title, breadcrumbs). */
   topLeft: React.ReactNode;
+  /** Main scrollable column below the header row. */
+  children: React.ReactNode;
+  /** Optional right column (store phone preview or product live preview). */
   preview?: React.ReactNode;
-  navContext: string;
+  navContext: NavContext;
 };
 
-export type DashboardShellProps = NewProps | LegacyProps;
-
-/** Narrow to new vs old */
-function isNewProps(p: DashboardShellProps): p is NewProps {
-  return "user" in p;
-}
-
-// ---------------------------------------------------------------------------
-// Navigation definition
-// ---------------------------------------------------------------------------
-type NavItem = {
-  id: string;
-  label: string;
-  href: string;
-  Icon: React.ComponentType<{ className?: string }>;
-};
-type NavSection = { heading: string; items: NavItem[] };
-
-const NAV_SECTIONS: NavSection[] = [
-  {
-    heading: "Main",
-    items: [
-      { id: "home",      label: "Home",      href: "/dashboard",           Icon: IconHome    },
-      { id: "store",     label: "Store",     href: "/dashboard/store",     Icon: IconBag     },
-      { id: "income",    label: "Income",    href: "/dashboard/income",    Icon: IconWallet  },
-      { id: "analytics", label: "Analytics", href: "/dashboard/analytics", Icon: IconChart   },
-      { id: "audience",  label: "Audience",  href: "/dashboard/audience",  Icon: IconUsers   },
-    ],
-  },
-  {
-    heading: "Features",
-    items: [
-      { id: "flows",        label: "Flows",        href: "/dashboard/flows",        Icon: IconMail     },
-      { id: "appointments", label: "Appointments", href: "/dashboard/appointments", Icon: IconCalendar },
-      { id: "affiliates",   label: "Affiliates",   href: "/dashboard/affiliates",   Icon: IconLink     },
-    ],
-  },
-];
-
-const ACCOUNT_ITEMS: NavItem[] = [
-  { id: "settings", label: "Settings", href: "/dashboard/settings", Icon: IconGear       },
-  { id: "profile",  label: "Profile",  href: "/dashboard/profile",  Icon: IconUserCircle },
-];
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-function resolveDisplayName(
-  user: { username?: string; email?: string; full_name?: string } | null,
-): string {
-  if (!user) return "Creator";
-  return (
-    user.full_name?.trim() ||
-    (user.username
-      ? user.username.charAt(0).toUpperCase() + user.username.slice(1)
-      : "Creator")
-  );
-}
-
-// ---------------------------------------------------------------------------
-// UserAvatar
-// ---------------------------------------------------------------------------
-function UserAvatar({ name, size = 34 }: { name: string; size?: number }) {
-  const initials =
-    name
-      .split(" ")
-      .slice(0, 2)
-      .map((w) => w[0]?.toUpperCase() ?? "")
-      .join("") || "?";
-  return (
-    <div
-      className="flex shrink-0 select-none items-center justify-center rounded-full text-[11px] font-bold text-white"
-      style={{
-        width: size,
-        height: size,
-        background: "linear-gradient(135deg, #6b46ff 0%, #9333ea 100%)",
-      }}
-      aria-hidden
-    >
-      {initials}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// LogoMark — backwards-compat export used in some child components
-// ---------------------------------------------------------------------------
-export function LogoMark() {
-  return (
-    <div
-      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[15px] font-bold text-white shadow-sm"
-      style={{ backgroundColor: BRAND }}
-    >
-      <IconBolt />
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// SidebarContent
-// ---------------------------------------------------------------------------
-function SidebarContent({
+export default function DashboardShell({
   displayName,
-  email,
-  storeHandle,
-  pathname,
-  onLinkClick,
+  handle,
+  showName,
   onSignOut,
-}: {
-  displayName: string;
-  email: string;
-  storeHandle: string;
-  pathname: string;
-  onLinkClick: () => void;
-  onSignOut: () => void;
-}) {
+  topLeft,
+  children,
+  preview,
+  navContext,
+}: DashboardShellProps) {
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const storeUrl = `localhost:3001/${storeHandle}`;
-  const fullUrl  = `http://${storeUrl}`;
+  const storeUrl = `stan.store/${handle}`;
+  const fullUrl = `https://${storeUrl}`;
 
-  const copyUrl = useCallback(async () => {
+  const copyStoreUrl = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(fullUrl);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }, [fullUrl]);
 
-  const isActive = (href: string) =>
-    href === "/dashboard"
-      ? pathname === "/dashboard"
-      : pathname.startsWith(href);
+  const closeMobileNav = () => setMobileNavOpen(false);
 
-  const navLinkCls = (href: string) =>
-    [
-      "group flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-medium transition-colors",
-      isActive(href)
-        ? "bg-indigo-50 text-indigo-700"
-        : "text-slate-600 hover:bg-slate-50 hover:text-slate-900",
-    ].join(" ");
+  const navLinkClass = (active: boolean) =>
+    `flex items-center gap-3 rounded-2xl px-3 py-2.5 text-[15px] font-medium transition-colors ${
+      active
+        ? "bg-white text-[#1e1648] shadow-sm"
+        : "text-slate-600 hover:bg-white/60 hover:text-slate-900"
+    }`;
 
-  const navIconCls = (href: string) =>
-    isActive(href)
-      ? "text-indigo-600"
-      : "text-slate-400 transition-colors group-hover:text-slate-600";
+  const NAV = navItems(navContext);
 
-  return (
-    <div className="flex h-full flex-col overflow-hidden">
-      {/* Logo */}
-      <div className="shrink-0 px-4 pt-5 pb-3">
-        <Link
-          href="/dashboard"
-          onClick={onLinkClick}
-          className="flex items-center gap-2.5 rounded-lg py-0.5 transition-opacity hover:opacity-80"
-        >
-          <div
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white shadow-sm"
-            style={{ backgroundColor: BRAND }}
-          >
-            <IconBolt />
-          </div>
-          <span className="text-[1rem] font-bold tracking-tight text-slate-900">
-            Creator<span style={{ color: BRAND }}>Store</span>
-          </span>
-        </Link>
+  const sidebarContent = (
+    <div className="flex h-full min-h-0 flex-1 flex-col">
+      <div className="flex items-center gap-2.5 px-3 pt-2 lg:pt-0">
+        <LogoMark />
+        <span className="text-[1.35rem] font-bold tracking-tight text-[#1e1648]">Stan</span>
       </div>
 
-      {/* Store URL copy pill */}
-      <div className="shrink-0 mx-3 mb-4 flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-slate-500">{storeUrl}</span>
-        <button
-          type="button"
-          onClick={() => { void copyUrl(); }}
-          title={copied ? "Copied!" : "Copy link"}
-          aria-label="Copy store URL"
-          className="flex shrink-0 items-center justify-center rounded-md p-1 transition hover:bg-white hover:shadow-sm"
-        >
-          {copied
-            ? <IconCheck className="text-emerald-500" />
-            : <IconCopy className="text-slate-400" />}
-        </button>
-      </div>
-
-      {/* Scrollable nav */}
-      <nav
-        className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-3 pb-3"
-        aria-label="Main navigation"
-      >
-        {NAV_SECTIONS.map((section) => (
-          <div key={section.heading}>
-            <p className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400">
-              {section.heading}
-            </p>
-            <ul className="flex flex-col gap-0.5">
-              {section.items.map((item) => (
-                <li key={item.id}>
-                  <Link href={item.href} onClick={onLinkClick} className={navLinkCls(item.href)}>
-                    <item.Icon className={navIconCls(item.href)} />
-                    {item.label}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-
-        {/* Account — pushed to bottom */}
-        <div className="mt-auto">
-          <p className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400">
-            Account
-          </p>
-          <ul className="flex flex-col gap-0.5">
-            {ACCOUNT_ITEMS.map((item) => (
-              <li key={item.id}>
-                <Link href={item.href} onClick={onLinkClick} className={navLinkCls(item.href)}>
-                  <item.Icon className={navIconCls(item.href)} />
-                  {item.label}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </div>
+      <nav className="mt-6 flex flex-col gap-0.5 px-2 lg:mt-8" aria-label="Main">
+        {NAV.map((item) => {
+          const active = Boolean(item.active);
+          const content = (
+            <>
+              <item.Icon
+                className={`shrink-0 ${active ? "text-[#6b46ff]" : "text-slate-500"}`}
+              />
+              {item.label}
+            </>
+          );
+          const className = navLinkClass(active);
+          return item.useLink ? (
+            <Link key={item.id} href={item.href} className={className} onClick={closeMobileNav}>
+              {content}
+            </Link>
+          ) : (
+            <a key={item.id} href={item.href} className={className} onClick={closeMobileNav}>
+              {content}
+            </a>
+          );
+        })}
       </nav>
 
-      {/* User footer */}
-      <div className="shrink-0 border-t border-slate-100 px-3 py-3">
-        <div className="flex items-center gap-2.5 rounded-xl px-2 py-1.5">
-          <UserAvatar name={displayName} size={34} />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-[12.5px] font-semibold text-slate-900">{displayName}</p>
-            <p className="truncate text-[11px] text-slate-500">{email}</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => { onLinkClick(); onSignOut(); }}
-            aria-label="Sign out"
-            title="Sign out"
-            className="flex shrink-0 items-center justify-center rounded-lg p-1.5 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
+      <div className="mt-auto flex flex-col gap-1 border-t border-slate-200/80 pt-4">
+        <a
+          href="#"
+          className="flex items-center gap-3 rounded-2xl px-3 py-2.5 text-[15px] font-medium text-slate-600 hover:bg-white/60"
+          onClick={closeMobileNav}
+        >
+          <IconGear className="shrink-0 text-slate-500" />
+          Settings
+        </a>
+        <div className="flex items-center gap-3 rounded-2xl px-3 py-2">
+          <div
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-[#5b8ac4]"
+            style={{ backgroundColor: "#dbeafe" }}
+            aria-hidden
           >
-            <IconLogOut />
-          </button>
+            {showName.trim().charAt(0).toUpperCase() || "?"}
+          </div>
+          <span className="truncate text-[15px] font-semibold text-[#1e1648]">{showName}</span>
         </div>
+        <button
+          type="button"
+          onClick={() => {
+            closeMobileNav();
+            onSignOut();
+          }}
+          className="px-3 pb-2 text-left text-[13px] font-medium text-slate-500 underline-offset-2 hover:text-slate-800 hover:underline"
+        >
+          Sign out
+        </button>
       </div>
     </div>
   );
-}
-
-// ---------------------------------------------------------------------------
-// DashboardShell — unified export handling both old & new props
-// ---------------------------------------------------------------------------
-export default function DashboardShell(props: DashboardShellProps) {
-  const pathname    = usePathname();
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const closeMobile = () => setMobileOpen(false);
-
-  // Resolve unified values from either prop shape
-  let displayName: string;
-  let email: string;
-  let storeHandle: string;
-  let signOut: () => void;
-  let pageTitle: string;
-  let mainContent: React.ReactNode;
-  let previewPanel: React.ReactNode | undefined;
-  let topLeftNode: React.ReactNode | undefined;
-
-  if (isNewProps(props)) {
-    displayName  = resolveDisplayName(props.user);
-    email        = props.user?.email ?? "";
-    storeHandle  = props.user?.username?.trim() || "creator";
-    signOut      = () => {
-      if (typeof window !== "undefined") localStorage.removeItem("auth_token");
-      window.location.href = "/auth/login";
-    };
-    pageTitle    =
-      props.title ??
-      (pathname === "/dashboard"
-        ? "Home"
-        : pathname
-            .split("/")
-            .filter(Boolean)
-            .pop()
-            ?.replace(/-/g, " ")
-            .replace(/\b\w/g, (c) => c.toUpperCase()) ?? "Dashboard");
-    mainContent  = props.children;
-    previewPanel = undefined;
-    topLeftNode  = undefined;
-  } else {
-    displayName  = props.displayName;
-    email        = "";
-    storeHandle  = props.handle;
-    signOut      = props.onSignOut;
-    pageTitle    = typeof props.topLeft === "string" ? props.topLeft : "Dashboard";
-    mainContent  = props.children;
-    previewPanel = props.preview;
-    topLeftNode  = props.topLeft;
-  }
 
   return (
-    <div className="flex min-h-screen bg-[#f8f9fc]">
-
-      {/* Desktop sidebar */}
-      <aside className="hidden w-[260px] shrink-0 border-r border-slate-200 bg-white lg:flex lg:flex-col">
-        <SidebarContent
-          displayName={displayName}
-          email={email}
-          storeHandle={storeHandle}
-          pathname={pathname}
-          onLinkClick={closeMobile}
-          onSignOut={signOut}
-        />
-      </aside>
-
-      {/* Mobile overlay */}
-      {mobileOpen && (
-        <button
-          type="button"
-          className="fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-sm lg:hidden"
-          aria-label="Close menu overlay"
-          onClick={closeMobile}
-        />
-      )}
-
-      {/* Mobile drawer */}
-      <aside
-        className={[
-          "fixed inset-y-0 left-0 z-50 flex w-[min(280px,88vw)] flex-col border-r border-slate-200 bg-white shadow-2xl transition-transform duration-200 ease-out lg:hidden",
-          mobileOpen ? "translate-x-0" : "-translate-x-full",
-        ].join(" ")}
+    <div className="min-h-screen w-full bg-white">
+      <header
+        className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-3 lg:hidden"
+        style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}
       >
         <button
           type="button"
-          onClick={closeMobile}
-          aria-label="Close menu"
-          className="absolute right-3 top-3.5 flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
+          onClick={() => setMobileNavOpen(true)}
+          className="flex h-11 w-11 items-center justify-center rounded-xl text-slate-700 hover:bg-slate-50"
+          aria-label="Open menu"
         >
-          <IconClose />
+          <IconMenu />
         </button>
-        <SidebarContent
-          displayName={displayName}
-          email={email}
-          storeHandle={storeHandle}
-          pathname={pathname}
-          onLinkClick={closeMobile}
-          onSignOut={signOut}
+        <div className="flex flex-1 items-center justify-center gap-2">
+          <LogoMark />
+          <span className="text-lg font-bold text-[#1e1648]">Stan</span>
+        </div>
+        <div className="w-11 shrink-0" aria-hidden />
+      </header>
+
+      {mobileNavOpen ? (
+        <button
+          type="button"
+          className="fixed inset-0 z-40 bg-slate-900/40 lg:hidden"
+          aria-label="Close menu"
+          onClick={closeMobileNav}
         />
-      </aside>
+      ) : null}
 
-      {/* Main column */}
-      <div className="flex min-w-0 flex-1 flex-col lg:flex-row">
-
-        {/* Content + header */}
-        <div className="flex min-w-0 flex-1 flex-col">
-
-          {/* Header bar */}
-          <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white/95 px-4 backdrop-blur-sm sm:px-6">
-            {/* Hamburger */}
+      <div className="flex min-h-[calc(100dvh-57px)] flex-col lg:min-h-screen lg:flex-row">
+        <aside
+          className={`fixed inset-y-0 left-0 z-50 flex w-[min(280px,88vw)] flex-col overflow-y-auto border-r border-slate-100/80 px-3 pb-6 pt-3 transition-transform duration-200 ease-out lg:static lg:z-auto lg:min-h-screen lg:w-[248px] lg:shrink-0 lg:translate-x-0 lg:overflow-visible lg:px-4 lg:pb-8 lg:pt-8 lg:shadow-none ${
+            mobileNavOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full lg:translate-x-0"
+          }`}
+          style={{ backgroundColor: SIDEBAR_BG }}
+        >
+          <div className="mb-3 flex shrink-0 items-center justify-end lg:hidden">
             <button
               type="button"
-              onClick={() => setMobileOpen(true)}
-              aria-label="Open navigation menu"
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 lg:hidden"
+              onClick={closeMobileNav}
+              className="flex h-10 w-10 items-center justify-center rounded-xl text-slate-600 hover:bg-white/70"
+              aria-label="Close menu"
             >
-              <IconMenu />
+              <IconClose />
             </button>
+          </div>
+          {sidebarContent}
+        </aside>
 
-            {/* Mobile brand */}
-            <div className="flex flex-1 items-center gap-2 lg:hidden">
-              <div
-                className="flex h-7 w-7 items-center justify-center rounded-md text-white"
-                style={{ backgroundColor: BRAND }}
+        <div className="flex min-h-0 flex-1 flex-col lg:min-w-0">
+          <div className="flex h-8 w-full items-center justify-between gap-3 border-b border-slate-200 px-4 lg:px-5">
+            <div className="min-w-0 flex-1">{topLeft}</div>
+            <div className="ml-auto flex shrink-0 items-center gap-1.5">
+              <span className="text-xs font-medium text-[#5b3fd6]">{storeUrl}</span>
+              <button
+                type="button"
+                onClick={() => void copyStoreUrl()}
+                className="flex h-4 w-4 shrink-0 items-center justify-center text-[#5b3fd6] hover:opacity-80"
+                aria-label="Copy store URL"
+                title={copied ? "Copied" : "Copy URL"}
               >
-                <IconBolt />
-              </div>
-              <span className="text-sm font-bold text-slate-900">
-                Creator<span style={{ color: BRAND }}>Store</span>
-              </span>
+                <IconCopy className="h-3.5 w-3.5 text-[#5b3fd6]" />
+              </button>
             </div>
+          </div>
 
-            {/* Breadcrumb — desktop */}
-            {topLeftNode ? (
-              <div className="hidden flex-1 lg:block">{topLeftNode}</div>
-            ) : (
-              <div className="hidden flex-1 items-center gap-1.5 lg:flex">
-                <span className="text-xs text-slate-400">Dashboard</span>
-                <span className="text-xs text-slate-300">/</span>
-                <span className="text-[13px] font-semibold text-slate-700">{pageTitle}</span>
-              </div>
-            )}
+          <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+            <main className="min-w-0 flex-1 overflow-y-auto px-4 py-0 lg:px-5 [scrollbar-gutter:stable]">
+              <div className="w-full">{children}</div>
+            </main>
 
-            {/* Avatar */}
-            <div className="flex items-center gap-2">
-              <UserAvatar name={displayName} size={30} />
-            </div>
-          </header>
-
-          {/* Legacy topLeft shown on mobile when using old props */}
-          {topLeftNode && (
-            <div className="px-4 pt-4 sm:px-6 lg:hidden">{topLeftNode}</div>
-          )}
-
-          {/* Page content */}
-          <main className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-8 lg:py-8 [scrollbar-gutter:stable]">
-            {mainContent}
-          </main>
+            {preview ? (
+              <aside
+                className="shrink-0 border-t border-slate-100 bg-[#fafbff] px-4 py-8 lg:w-[min(380px,38vw)] lg:border-t-0 lg:bg-white lg:pb-10 lg:pl-6 lg:pr-8 lg:pt-[30px]"
+                aria-label="Preview"
+              >
+                {preview}
+              </aside>
+            ) : null}
+          </div>
         </div>
-
-        {/* Optional right preview panel (legacy pages) */}
-        {previewPanel && (
-          <aside
-            className="shrink-0 border-t border-slate-100 bg-[#fafbff] px-4 py-8 lg:w-[min(380px,38vw)] lg:border-l lg:border-t-0 lg:bg-white lg:py-10 lg:pl-6 lg:pr-8"
-            aria-label="Preview"
-          >
-            {previewPanel}
-          </aside>
-        )}
       </div>
     </div>
   );
 }
+
+export { LogoMark, PURPLE };
+export { IconArrowUpRight, IconSparkle, IconStoreTab };
