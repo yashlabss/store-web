@@ -99,7 +99,7 @@ export default function DashboardShell({
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const storeUrl = `yash.store/${handle}`;
+  const storeUrl = `stan.store/${handle}`;
   const fullUrl = `https://${storeUrl}`;
 
   const copyStoreUrl = useCallback(async () => {
@@ -127,7 +127,7 @@ export default function DashboardShell({
     <div className="flex h-full min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-2.5 px-3 pt-2 lg:pt-0">
         <LogoMark />
-        <span className="text-[1.35rem] font-bold tracking-tight text-[#1e1648]">Yash</span>
+        <span className="text-[1.35rem] font-bold tracking-tight text-[#1e1648]">Stan</span>
       </div>
 
       <nav className="mt-6 flex flex-col gap-0.5 px-2 lg:mt-8" aria-label="Main">
@@ -203,7 +203,7 @@ export default function DashboardShell({
         </button>
         <div className="flex flex-1 items-center justify-center gap-2">
           <LogoMark />
-          <span className="text-lg font-bold text-[#1e1648]">Yash</span>
+          <span className="text-lg font-bold text-[#1e1648]">Stan</span>
         </div>
         <div className="w-11 shrink-0" aria-hidden />
       </header>
@@ -237,38 +237,37 @@ export default function DashboardShell({
           {sidebarContent}
         </aside>
 
-        <div className="flex min-h-0 flex-1 flex-col lg:min-w-0 lg:flex-row">
-          <main
-            className="min-w-0 flex-1 overflow-y-auto px-5 py-6 lg:py-8 [scrollbar-gutter:stable]"
-          >
-            <div className="w-full">
-              <div className="flex w-full items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">{topLeft}</div>
-                <div className="ml-auto flex shrink-0 items-center gap-2">
-                  <span className="text-sm font-medium text-slate-600">{storeUrl}</span>
-                  <button
-                    type="button"
-                    onClick={() => void copyStoreUrl()}
-                    className="flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    <IconCopy className="text-slate-500" />
-                    {copied ? "Copied" : "Copy"}
-                  </button>
-                </div>
-              </div>
-
-              {children}
+        <div className="flex min-h-0 flex-1 flex-col lg:min-w-0">
+          <div className="flex h-8 w-full items-center justify-between gap-3 border-b border-slate-200 px-4 lg:px-5">
+            <div className="min-w-0 flex-1">{topLeft}</div>
+            <div className="ml-auto flex shrink-0 items-center gap-1.5">
+              <span className="text-xs font-medium text-[#5b3fd6]">{storeUrl}</span>
+              <button
+                type="button"
+                onClick={() => void copyStoreUrl()}
+                className="flex h-4 w-4 shrink-0 items-center justify-center text-[#5b3fd6] hover:opacity-80"
+                aria-label="Copy store URL"
+                title={copied ? "Copied" : "Copy URL"}
+              >
+                <IconCopy className="h-3.5 w-3.5 text-[#5b3fd6]" />
+              </button>
             </div>
-          </main>
+          </div>
 
-          {preview ? (
-            <aside
-              className="shrink-0 border-t border-slate-100 bg-[#fafbff] px-4 py-8 lg:w-[min(380px,38vw)] lg:border-l lg:border-t-0 lg:bg-white lg:py-10 lg:pl-6 lg:pr-8"
-              aria-label="Preview"
-            >
-              {preview}
-            </aside>
-          ) : null}
+          <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+            <main className="min-w-0 flex-1 overflow-y-auto px-4 py-0 lg:px-5 [scrollbar-gutter:stable]">
+              <div className="w-full">{children}</div>
+            </main>
+
+            {preview ? (
+              <aside
+                className="shrink-0 border-t border-slate-100 bg-[#fafbff] px-4 py-8 lg:w-[min(380px,38vw)] lg:border-t-0 lg:bg-white lg:pb-10 lg:pl-6 lg:pr-8 lg:pt-[30px]"
+                aria-label="Preview"
+              >
+                {preview}
+              </aside>
+            ) : null}
+          </div>
         </div>
       </div>
     </div>
