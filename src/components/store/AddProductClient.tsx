@@ -58,6 +58,7 @@ type CheckoutJsonShape = {
   digital_delivery?: "upload" | "redirect";
   digital_redirect_url?: string;
   digital_file_name?: string | null;
+  digital_file_data_url?: string | null;
   custom_fields?: string[];
   /** Hero image for checkout preview (data URL or remote). Listing uses `thumbnail_url`. */
   checkout_image_url?: string | null;
@@ -305,6 +306,7 @@ export default function AddProductClient({
   const [digitalDelivery, setDigitalDelivery] = useState<"upload" | "redirect">("upload");
   const [digitalRedirectUrl, setDigitalRedirectUrl] = useState("");
   const [digitalFileName, setDigitalFileName] = useState<string | null>(null);
+  const [digitalFileDataUrl, setDigitalFileDataUrl] = useState<string | null>(null);
   const [customCheckoutFields, setCustomCheckoutFields] = useState<string[]>([]);
 
   /** Saved as `thumbnail_url` — My Store listing & thumbnail-tab card. */
@@ -358,6 +360,7 @@ export default function AddProductClient({
       digitalDelivery,
       digitalRedirectUrl,
       digitalFileName,
+      digitalFileDataUrl,
       customCheckoutFields,
       thumbnailDataUrl,
       checkoutImageDataUrl,
@@ -387,6 +390,7 @@ export default function AddProductClient({
     digitalDelivery,
     digitalRedirectUrl,
     digitalFileName,
+    digitalFileDataUrl,
     customCheckoutFields,
     thumbnailDataUrl,
     checkoutImageDataUrl,
@@ -432,6 +436,9 @@ export default function AddProductClient({
     }
     if (typeof cj.digital_redirect_url === "string") setDigitalRedirectUrl(cj.digital_redirect_url);
     if (typeof cj.digital_file_name === "string") setDigitalFileName(cj.digital_file_name);
+    if (typeof cj.digital_file_data_url === "string") {
+      setDigitalFileDataUrl(cj.digital_file_data_url);
+    }
     if (Array.isArray(cj.custom_fields) && cj.custom_fields.every((x) => typeof x === "string")) {
       setCustomCheckoutFields(cj.custom_fields);
     }
@@ -485,6 +492,7 @@ export default function AddProductClient({
     setDigitalDelivery("upload");
     setDigitalRedirectUrl("");
     setDigitalFileName(null);
+    setDigitalFileDataUrl(null);
     setCustomCheckoutFields([]);
     setThumbnailDataUrl(null);
     setCheckoutImageDataUrl(null);
@@ -522,6 +530,7 @@ export default function AddProductClient({
         digital_delivery: digitalDelivery,
         digital_redirect_url: digitalRedirectUrl,
         digital_file_name: digitalFileName,
+        digital_file_data_url: digitalFileDataUrl,
         custom_fields: customCheckoutFields,
         checkout_image_url: checkoutImageDataUrl,
       },
@@ -551,6 +560,7 @@ export default function AddProductClient({
     digitalDelivery,
     digitalRedirectUrl,
     digitalFileName,
+    digitalFileDataUrl,
     customCheckoutFields,
   ]);
 
@@ -741,6 +751,16 @@ export default function AddProductClient({
           const file = e.target.files?.[0];
           if (!file) return;
           setDigitalFileName(file.name);
+          const reader = new FileReader();
+          reader.onload = () => {
+            if (typeof reader.result === "string") {
+              setDigitalFileDataUrl(reader.result);
+            }
+          };
+          reader.onerror = () => {
+            setDigitalFileDataUrl(null);
+          };
+          reader.readAsDataURL(file);
         }}
         aria-hidden
       />
