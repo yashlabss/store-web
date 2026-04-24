@@ -92,7 +92,14 @@ export default function PublicStorePage({ username }: { username: string }) {
   }, [load]);
 
   const purchase = async (productId: string) => {
-    const email = buyerEmail.trim();
+    let email = buyerEmail.trim();
+    if (!email && typeof window !== "undefined") {
+      const entered = window.prompt("Enter your email to continue:");
+      if (entered) {
+        email = entered.trim();
+        setBuyerEmail(email);
+      }
+    }
     if (!email) {
       setToast("Enter your email to complete purchase.");
       window.setTimeout(() => setToast(""), 4000);
@@ -155,16 +162,16 @@ export default function PublicStorePage({ username }: { username: string }) {
   const { store, products } = data;
 
   return (
-    <div className="min-h-screen bg-white pb-28">
-      <div className="mx-auto flex min-h-[calc(100dvh-7rem)] max-w-5xl flex-col items-center justify-center gap-12 px-4 py-10 sm:py-14 md:flex-row md:items-start md:justify-center md:gap-16 lg:gap-24">
-        <section className="flex flex-col items-center text-center md:shrink-0">
+    <div className="min-h-screen bg-[#fafafa] pb-24">
+      <div className="mx-auto flex min-h-[calc(100dvh-7rem)] w-full max-w-6xl flex-col items-center justify-center gap-10 px-4 py-10 md:flex-row md:items-center md:justify-between md:gap-16 md:px-8">
+        <section className="flex w-full max-w-[230px] flex-col items-center text-center md:shrink-0">
           <ProfileAvatar label={store.display_name} />
-          <h1 className="mt-6 text-center text-xl font-bold tracking-tight text-slate-900">
+          <h1 className="mt-5 text-center text-[32px] font-bold tracking-tight text-slate-900">
             {store.display_name}
           </h1>
         </section>
 
-        <section className="w-full max-w-md flex-1 md:max-w-lg">
+        <section className="w-full flex-1">
           {products.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 p-8 text-center">
               <p className="font-medium text-slate-700">No products to show yet</p>
@@ -174,16 +181,16 @@ export default function PublicStorePage({ username }: { username: string }) {
               </p>
             </div>
           ) : (
-            <div className="flex flex-col gap-6">
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
               {products.map((p) => {
                 const price = displayPrice(p);
                 return (
                   <article
                     key={p.id}
-                    className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-[0_8px_30px_rgba(15,23,42,.08)]"
+                    className="overflow-hidden rounded-2xl border border-[#0a7a69]/40 bg-white shadow-[0_8px_24px_rgba(15,23,42,.08)]"
                   >
-                    <div className="flex gap-4 p-5">
-                      <div className="h-[88px] w-[88px] shrink-0 overflow-hidden rounded-xl bg-slate-100">
+                    <div className="flex gap-3 px-4 pt-4">
+                      <div className="h-[62px] w-[62px] shrink-0 overflow-hidden rounded-lg bg-slate-100">
                         {p.thumbnail_url ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
@@ -197,58 +204,39 @@ export default function PublicStorePage({ username }: { username: string }) {
                           </div>
                         )}
                       </div>
-                      <div className="min-w-0 flex-1 pt-0.5">
+                      <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-start gap-2">
-                          <h2 className="font-bold leading-snug text-slate-900">{p.title}</h2>
+                          <h2 className="line-clamp-1 text-[18px] font-bold leading-tight text-slate-900">{p.title}</h2>
                           {p.status === "draft" ? (
                             <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                               Draft
                             </span>
                           ) : null}
                         </div>
-                        <p className="mt-1.5 text-sm leading-relaxed text-slate-500">{p.subtitle}</p>
-                        <p className="mt-2 text-lg font-bold" style={{ color: PURPLE }}>
+                        <p className="line-clamp-1 text-sm text-slate-500">{p.subtitle}</p>
+                        <p className="mt-1 text-[20px] font-bold text-[#0a7a69]">
                           ${price.toFixed(2)}
                         </p>
                       </div>
                     </div>
-                    <div className="border-t border-slate-50 px-5 pb-5 pt-4">
-                      <p className="mb-3 text-xs font-medium uppercase tracking-wide text-slate-400">
-                        1-click checkout
+                    <div className="px-4 pb-4 pt-3">
+                      <p className="mb-3 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600">
+                        <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-[#0a7a69] text-[10px] text-white">
+                          ↓
+                        </span>
+                        Ready To Download
                       </p>
-                      <label className="sr-only" htmlFor={`buyer-name-${p.id}`}>
-                        Your name
-                      </label>
-                      <input
-                        id={`buyer-name-${p.id}`}
-                        type="text"
-                        value={buyerName}
-                        onChange={(e) => setBuyerName(e.target.value)}
-                        placeholder="Your name (optional)"
-                        autoComplete="name"
-                        className="mb-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-violet-400"
-                      />
-                      <label className="sr-only" htmlFor={`buyer-email-${p.id}`}>
-                        Email
-                      </label>
-                      <input
-                        id={`buyer-email-${p.id}`}
-                        type="email"
-                        value={buyerEmail}
-                        onChange={(e) => setBuyerEmail(e.target.value)}
-                        placeholder="Email (required)"
-                        autoComplete="email"
-                        required
-                        className="mb-3 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-violet-400"
-                      />
                       <button
                         type="button"
                         disabled={busyId === p.id}
                         onClick={() => void purchase(p.id)}
-                        className="w-full rounded-full py-3.5 text-[15px] font-bold text-white transition hover:opacity-95 disabled:opacity-60"
-                        style={{ backgroundColor: PURPLE }}
+                        className="w-full rounded-full py-3 text-[18px] font-bold text-white transition hover:opacity-95 disabled:opacity-60"
+                        style={{ backgroundColor: "#0a7a69" }}
                       >
-                        {busyId === p.id ? "Processing…" : p.button_text || "Get it now"}
+                        {busyId === p.id ? "Processing…" : p.button_text || "Buy now"}
+                      </button>
+                      <button type="button" className="mt-3 w-full text-center text-sm font-semibold text-[#0a7a69]">
+                        Learn More
                       </button>
                     </div>
                   </article>
@@ -268,18 +256,18 @@ export default function PublicStorePage({ username }: { username: string }) {
         </div>
       ) : null}
 
-      <div className="fixed bottom-6 left-1/2 z-10 -translate-x-1/2">
+      <div className="fixed bottom-5 left-1/2 z-10 -translate-x-1/2">
         <button
           type="button"
-          className="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-medium text-slate-500 shadow-sm"
+          className="bg-transparent px-2 py-1 text-xs font-medium text-slate-500"
         >
           Privacy Policy
         </button>
       </div>
 
-      <div className="fixed bottom-0 left-0 flex w-full items-center justify-between gap-3 bg-[#6b46ff] px-4 py-2.5 text-white">
-        <span className="text-sm font-bold">$ Yash</span>
-        <span className="text-xs opacity-90">Try 14 Days Free</span>
+      <div className="fixed bottom-0 left-0 flex w-[210px] items-center justify-between gap-3 rounded-tr-xl bg-[#eceeff] px-3 py-2 text-[#1f2a44]">
+        <span className="text-sm font-bold">Stan</span>
+        <span className="text-xs font-semibold">Try 14 Days Free</span>
       </div>
     </div>
   );
