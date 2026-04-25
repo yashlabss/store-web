@@ -63,10 +63,10 @@ export default function ThankYouPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const authToken = localStorage.getItem("auth_token");
+    const authToken = localStorage.getItem("buyer_auth_token");
     if (authToken) return;
     const redirectTo = `${window.location.pathname}${window.location.search}`;
-    router.replace(`/auth/login?redirectTo=${encodeURIComponent(redirectTo)}`);
+    router.replace(`/buyer/login?redirectTo=${encodeURIComponent(redirectTo)}`);
   }, [router]);
 
   useEffect(() => {
@@ -74,11 +74,24 @@ export default function ThankYouPage() {
     let cancelled = false;
     void (async () => {
       try {
+        const tokenValue =
+          typeof window === "undefined"
+            ? ""
+            : localStorage.getItem("buyer_auth_token") || "";
         const res = await fetch(
           `${API_PUBLIC_BASE}/order/${encodeURIComponent(orderId)}?token=${encodeURIComponent(token)}`,
-          { cache: "no-store" }
+          {
+            cache: "no-store",
+            headers: tokenValue ? { Authorization: `Bearer ${tokenValue}` } : {},
+          }
         );
         const json = await res.json().catch(() => ({}));
+        if (res.status === 401 || res.status === 403) {
+          if (typeof window !== "undefined") localStorage.removeItem("buyer_auth_token");
+          const redirectTo = `${window.location.pathname}${window.location.search}`;
+          router.replace(`/buyer/login?redirectTo=${encodeURIComponent(redirectTo)}`);
+          return;
+        }
         if (!res.ok) throw new Error(json.message || "Could not load order.");
         if (!cancelled) setData(json as OrderPayload);
       } catch (e) {
@@ -90,7 +103,7 @@ export default function ThankYouPage() {
     return () => {
       cancelled = true;
     };
-  }, [hasAccessParams, orderId, token]);
+  }, [hasAccessParams, orderId, token, router]);
 
   if (loading) {
     return (
@@ -124,7 +137,14 @@ export default function ThankYouPage() {
     try {
       const res = await fetch(`${API_PUBLIC_BASE}/download`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(typeof window !== "undefined" && localStorage.getItem("buyer_auth_token")
+            ? {
+                Authorization: `Bearer ${localStorage.getItem("buyer_auth_token")}`,
+              }
+            : {}),
+        },
         body: JSON.stringify({ token }),
       });
       const json = await res.json().catch(() => ({}));

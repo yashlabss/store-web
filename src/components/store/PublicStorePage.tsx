@@ -3,10 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { parsePhoneNumberFromString } from "libphonenumber-js";
 import { API_PUBLIC_BASE } from "../../lib/api";
-
-const PURPLE = "#6b46ff";
 
 type CheckoutJson = {
   discount_enabled?: boolean;
@@ -30,19 +27,13 @@ type PublicStorePayload = {
   products: PublicProduct[];
 };
 
-type CheckoutErrors = {
+type BuyerProfile = {
+  id: string;
   email: string;
-  whatsapp: string;
+  full_name: string | null;
+  phone: string | null;
+  address: string | null;
 };
-
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const COUNTRY_CODES = [
-  { label: "IN (+91)", value: "+91" },
-  { label: "US (+1)", value: "+1" },
-  { label: "UK (+44)", value: "+44" },
-  { label: "AE (+971)", value: "+971" },
-  { label: "SG (+65)", value: "+65" },
-];
 
 function displayPrice(p: PublicProduct): number {
   const cj = p.checkout_json || {};
@@ -76,14 +67,8 @@ export default function PublicStorePage({ username }: { username: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [data, setData] = useState<PublicStorePayload | null>(null);
-  const [buyerName, setBuyerName] = useState("");
-  const [buyerEmail, setBuyerEmail] = useState("");
-  const [buyerCountryCode, setBuyerCountryCode] = useState("+91");
-  const [buyerWhatsapp, setBuyerWhatsapp] = useState("");
-  const [fieldErrors, setFieldErrors] = useState<CheckoutErrors>({
-    email: "",
-    whatsapp: "",
-  });
+  const [buyer, setBuyer] = useState<BuyerProfile | null>(null);
+  const [buyerChecked, setBuyerChecked] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [toast, setToast] = useState("");
 
@@ -114,43 +99,54 @@ export default function PublicStorePage({ username }: { username: string }) {
     };
   }, [username]);
 
-  const validateInputs = (): { ok: boolean; whatsappE164: string | null } => {
-    const email = buyerEmail.trim();
-    const whatsappRaw = buyerWhatsapp.trim();
-    const next: CheckoutErrors = { email: "", whatsapp: "" };
-    let whatsappE164: string | null = null;
-
-    if (!email) {
-      next.email = "Email is required.";
-    } else if (!EMAIL_REGEX.test(email)) {
-      next.email = "Please enter a valid email address.";
-    }
-
-    if (whatsappRaw) {
-      const candidate = whatsappRaw.startsWith("+")
-        ? whatsappRaw
-        : `${buyerCountryCode}${whatsappRaw}`;
-      const parsed = parsePhoneNumberFromString(candidate);
-      if (!parsed || !parsed.isValid()) {
-        next.whatsapp = "Please enter a valid WhatsApp number (use country code).";
-      } else {
-        whatsappE164 = parsed.number;
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const token =
+        typeof window === "undefined"
+          ? ""
+          : localStorage.getItem("buyer_auth_token") || "";
+      if (!token) {
+        if (!cancelled) {
+          setBuyer(null);
+          setBuyerChecked(true);
+        }
+        return;
       }
-    }
-
-    setFieldErrors(next);
-    return {
-      ok: !next.email && !next.whatsapp,
-      whatsappE164,
+      try {
+        const res = await fetch(`${API_PUBLIC_BASE}/buyer/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json.message || "Session expired.");
+        if (!cancelled) setBuyer(json.buyer as BuyerProfile);
+      } catch {
+        if (typeof window !== "undefined") localStorage.removeItem("buyer_auth_token");
+        if (!cancelled) setBuyer(null);
+      } finally {
+        if (!cancelled) setBuyerChecked(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
     };
-  };
+  }, []);
 
   const purchase = async (productId: string) => {
-    const email = buyerEmail.trim();
-    const validation = validateInputs();
-    if (!validation.ok) {
-      setToast("Please fix the highlighted fields.");
-      window.setTimeout(() => setToast(""), 4000);
+    const token =
+      typeof window === "undefined"
+        ? ""
+        : localStorage.getItem("buyer_auth_token") || "";
+    if (!token) {
+      const redirectTo = `/${encodeURIComponent(username)}`;
+      router.push(`/buyer/login?redirectTo=${encodeURIComponent(redirectTo)}`);
+      return;
+    }
+    const buyerPhone = String(buyer?.phone || "").trim();
+    if (!buyerPhone) {
+      setToast("Your buyer account is missing phone number. Please sign up again to enable WhatsApp delivery.");
+      window.setTimeout(() => setToast(""), 5000);
       return;
     }
     setBusyId(productId);
@@ -158,24 +154,24 @@ export default function PublicStorePage({ username }: { username: string }) {
     try {
       const res = await fetch(`${API_PUBLIC_BASE}/purchase`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({
           product_id: productId,
-          buyer_email: email,
-          ...(validation.whatsappE164
-            ? { buyer_whatsapp: validation.whatsappE164 }
-            : {}),
-          ...(buyerName.trim() ? { buyer_name: buyerName.trim() } : {}),
+          buyer_whatsapp: buyerPhone,
+          ...(buyer?.full_name ? { buyer_name: buyer.full_name } : {}),
         }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.message || "Purchase failed.");
       const orderId = json?.order?.id as string | undefined;
-      const token = json?.token as string | undefined;
+      const deliveryToken = json?.token as string | undefined;
       if (orderId) {
         const base = `/${encodeURIComponent(username)}/thank-you?order=${encodeURIComponent(orderId)}`;
         router.push(
-          token ? `${base}&token=${encodeURIComponent(token)}` : base
+          deliveryToken ? `${base}&token=${encodeURIComponent(deliveryToken)}` : base
         );
         return;
       }
@@ -227,6 +223,38 @@ export default function PublicStorePage({ username }: { username: string }) {
         </section>
 
         <section className="w-full flex-1">
+          {buyerChecked && !buyer ? (
+            <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 sm:p-5">
+              <p className="text-sm font-semibold text-amber-900">
+                Login required before purchase
+              </p>
+              <p className="mt-1 text-sm text-amber-800">
+                Sign in with buyer email/password, or create account with email, phone, name, and address.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Link
+                  href={`/buyer/login?redirectTo=${encodeURIComponent(`/${username}`)}`}
+                  className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
+                >
+                  Buyer Login
+                </Link>
+                <Link
+                  href={`/buyer/signup?redirectTo=${encodeURIComponent(`/${username}`)}`}
+                  className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800"
+                >
+                  Create Buyer Account
+                </Link>
+              </div>
+            </div>
+          ) : null}
+          {buyer ? (
+            <div className="mb-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+              Logged in as{" "}
+              <span className="font-semibold">
+                {buyer.full_name?.trim() ? buyer.full_name : buyer.email}
+              </span>
+            </div>
+          ) : null}
           {products.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 p-8 text-center">
               <p className="font-medium text-slate-700">No products to show yet</p>
@@ -281,73 +309,6 @@ export default function PublicStorePage({ username }: { username: string }) {
                         </span>
                         Ready To Download
                       </p>
-                      <label className="sr-only" htmlFor={`buyer-name-${p.id}`}>
-                        Your name
-                      </label>
-                      <input
-                        id={`buyer-name-${p.id}`}
-                        type="text"
-                        value={buyerName}
-                        onChange={(e) => setBuyerName(e.target.value)}
-                        placeholder="Your name (optional)"
-                        autoComplete="name"
-                        className="mb-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-violet-400"
-                      />
-                      <label className="sr-only" htmlFor={`buyer-email-${p.id}`}>
-                        Email
-                      </label>
-                      <input
-                        id={`buyer-email-${p.id}`}
-                        type="email"
-                        value={buyerEmail}
-                        onChange={(e) => {
-                          setBuyerEmail(e.target.value);
-                          if (fieldErrors.email) {
-                            setFieldErrors((prev) => ({ ...prev, email: "" }));
-                          }
-                        }}
-                        placeholder="Email (required)"
-                        autoComplete="email"
-                        required
-                        className="mb-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-violet-400"
-                      />
-                      {fieldErrors.email ? (
-                        <p className="mb-2 text-xs font-medium text-red-600">{fieldErrors.email}</p>
-                      ) : null}
-                      <label className="sr-only" htmlFor={`buyer-whatsapp-${p.id}`}>
-                        WhatsApp number
-                      </label>
-                      <div className="mb-1 flex gap-2">
-                        <select
-                          value={buyerCountryCode}
-                          onChange={(e) => setBuyerCountryCode(e.target.value)}
-                          aria-label="Country code"
-                          className="w-[120px] rounded-xl border border-slate-200 px-2 py-2 text-sm outline-none focus:border-violet-400"
-                        >
-                          {COUNTRY_CODES.map((code) => (
-                            <option key={code.value} value={code.value}>
-                              {code.label}
-                            </option>
-                          ))}
-                        </select>
-                        <input
-                          id={`buyer-whatsapp-${p.id}`}
-                          type="tel"
-                          value={buyerWhatsapp}
-                          onChange={(e) => {
-                            setBuyerWhatsapp(e.target.value);
-                            if (fieldErrors.whatsapp) {
-                              setFieldErrors((prev) => ({ ...prev, whatsapp: "" }));
-                            }
-                          }}
-                          placeholder="WhatsApp number (optional)"
-                          autoComplete="tel-national"
-                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-violet-400"
-                        />
-                      </div>
-                      {fieldErrors.whatsapp ? (
-                        <p className="mb-2 text-xs font-medium text-red-600">{fieldErrors.whatsapp}</p>
-                      ) : null}
                       <button
                         type="button"
                         disabled={busyId === p.id}
