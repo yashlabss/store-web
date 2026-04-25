@@ -25,6 +25,7 @@ type Props = {
 type ProductRow = {
   id: string;
   status: string;
+  location?: string;
   title: string;
   subtitle: string;
   button_text: string;
@@ -36,6 +37,23 @@ type ProductRow = {
   style?: string;
   updated_at: string;
 };
+
+function isLandingProduct(p: ProductRow): boolean {
+  const anyP = p as ProductRow & {
+    data?: { source_product_id?: string };
+    options_json?: { data?: { source_product_id?: string }; location?: string } | null;
+    checkout_json?: { data?: { source_product_id?: string }; location?: string } | null;
+  };
+  const explicitLocation =
+    String(anyP.location || "") ||
+    String(anyP.options_json?.location || "") ||
+    String(anyP.checkout_json?.location || "");
+  if (explicitLocation.toLowerCase() === "landing") return true;
+  if (anyP.data?.source_product_id) return true;
+  if (anyP.options_json?.data?.source_product_id) return true;
+  if (anyP.checkout_json?.data?.source_product_id) return true;
+  return /\blanding page\b/i.test(anyP.title || "");
+}
 
 function listDisplayPrice(p: ProductRow): number {
   const cj = (p.checkout_json || {}) as {
@@ -61,7 +79,8 @@ function AvatarLarge({ label }: { label: string }) {
   );
 }
 
-function PhonePreview({ name }: { name: string }) {
+function PhonePreview({ name, products }: { name: string; products: ProductRow[] | null }) {
+  const previewProducts = (products || []).slice(0, 3);
   return (
     <div className="flex w-full flex-col items-center justify-center">
       <div
@@ -72,9 +91,31 @@ function PhonePreview({ name }: { name: string }) {
           <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full text-3xl font-semibold text-[#1f2a44] ring-1 ring-[#e7dcc9]" style={{ backgroundColor: "#f7f1e6" }}>
             {name.trim().charAt(0).toUpperCase() || "?"}
           </div>
-          <p className="mt-6 text-center text-xl font-bold tracking-tight text-slate-900">
+          <p className="mt-4 text-center text-xl font-bold tracking-tight text-slate-900">
             {name}
           </p>
+        </div>
+        <div className="mt-5 space-y-2.5">
+          {previewProducts.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-[#d8c7ab] bg-[#fbf7f0] px-3 py-4 text-center text-xs text-slate-500">
+              Added products will appear here
+            </div>
+          ) : (
+            previewProducts.map((p) => (
+              <div key={p.id} className="flex items-center gap-2.5 rounded-xl border border-[#e7dcc9] bg-white px-2.5 py-2">
+                <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-[#f7f1e6]">
+                  {p.thumbnail_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={p.thumbnail_url} alt="" className="h-full w-full object-cover" />
+                  ) : null}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[12px] font-semibold text-slate-900">{p.title?.trim() || "Untitled product"}</p>
+                  <p className="text-[11px] text-slate-600">${listDisplayPrice(p).toFixed(2)}</p>
+                </div>
+              </div>
+            ))
+          )}
         </div>
         <button
           type="button"
@@ -325,6 +366,10 @@ export default function StanDashboard({ displayName, handle, showName, onSignOut
   const [products, setProducts] = useState<ProductRow[] | null>(null);
   const [listError, setListError] = useState("");
   const [actionMsg, setActionMsg] = useState("");
+  const visibleProducts =
+    products == null
+      ? null
+      : products.filter((p) => (activeTab === "landing" ? isLandingProduct(p) : !isLandingProduct(p)));
 
   const loadProducts = useCallback(async () => {
     const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
@@ -597,7 +642,7 @@ export default function StanDashboard({ displayName, handle, showName, onSignOut
           My Store
         </h1>
       }
-      preview={<PhonePreview name={displayName} />}
+      preview={<PhonePreview name={displayName} products={visibleProducts} />}
     >
       <div className="mx-auto max-w-[640px]">
         <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-center text-sm font-medium text-amber-900">
@@ -681,17 +726,17 @@ export default function StanDashboard({ displayName, handle, showName, onSignOut
           {activeTab === "store" ? (
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#b08d57]">Products</h2>
           ) : null}
-          {products === null ? (
+          {visibleProducts === null ? (
             <ul className="flex flex-col gap-3">
               <ProductListRowSkeleton />
             </ul>
-          ) : products.length === 0 ? (
+          ) : visibleProducts.length === 0 ? (
             <p className="flex min-h-[80px] items-center justify-center rounded-2xl border border-dashed border-[#d8c7ab] bg-[#fbf7f0] px-4 text-center text-sm text-slate-500">
-              No products yet. Add one below.
+              {activeTab === "landing" ? "No landing pages yet. Add one below." : "No products yet. Add one below."}
             </p>
           ) : (
             <ul className="flex flex-col gap-3">
-              {products.map((p) => (
+              {visibleProducts.map((p) => (
                 <ProductListRow
                   key={p.id}
                   p={p}

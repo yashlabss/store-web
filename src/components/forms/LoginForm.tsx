@@ -88,6 +88,7 @@ export default function LoginForm() {
               id="email"
               name="email"
               type="email"
+              suppressHydrationWarning
               autoComplete="email"
               className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-lg text-slate-800 outline-none placeholder:text-slate-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
               placeholder="you@example.com"
@@ -110,6 +111,7 @@ export default function LoginForm() {
                 id="password"
                 name="password"
                 type={showPassword ? "text" : "password"}
+                suppressHydrationWarning
                 autoComplete="current-password"
                 className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 pr-16 text-lg text-slate-800 outline-none placeholder:text-slate-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
                 placeholder="••••••••"
@@ -118,6 +120,7 @@ export default function LoginForm() {
               />
               <button
                 type="button"
+                suppressHydrationWarning
                 className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-sm font-medium text-slate-500 hover:bg-slate-100"
                 onClick={() => setShowPassword((p) => !p)}
                 aria-label={showPassword ? "Hide password" : "Show password"}
@@ -150,6 +153,7 @@ export default function LoginForm() {
 
           <button
             type="submit"
+            suppressHydrationWarning
             disabled={loading}
             className="w-full rounded-full bg-indigo-600 px-6 py-3 text-lg font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-400"
           >

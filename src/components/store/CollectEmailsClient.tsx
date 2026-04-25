@@ -577,9 +577,9 @@ function LivePreview({
 export default function CollectEmailsClient({ displayName, handle, showName, onSignOut }: Props) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabKey>("thumbnail");
-  const [title, setTitle] = useState("");
-  const [subtitle, setSubtitle] = useState("");
-  const [buttonText, setButtonText] = useState("");
+  const [title, setTitle] = useState("Get My FREE Guide Now!");
+  const [subtitle, setSubtitle] = useState("Join my email list and never miss an update from me!");
+  const [buttonText, setButtonText] = useState("SUBMIT & DOWNLOAD");
   const [thumbnailDataUrl, setThumbnailDataUrl] = useState<string | null>(null);
   const [thumbnailFileName, setThumbnailFileName] = useState<string | null>(null);
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
@@ -749,12 +749,46 @@ export default function CollectEmailsClient({ displayName, handle, showName, onS
   };
 
   const handlePublish = async () => {
-    const e = validateOptionsStep(confirmationSubject, confirmationBody);
-    if (optionsStepHasErrors(e)) {
+    const thumbErrors = validateThumbnailStep(
+      thumbnailDataUrl,
+      title,
+      subtitle,
+      buttonText,
+      customFields
+    );
+    const productErrors = validateProductStep(delivery, uploadedFileName, redirectUrl);
+    const optionsErrors = validateOptionsStep(confirmationSubject, confirmationBody);
+    const e: CollectEmailsFormErrors = {
+      ...thumbErrors,
+      ...productErrors,
+      ...optionsErrors,
+    };
+
+    if (
+      thumbnailStepHasErrors(thumbErrors) ||
+      productStepHasErrors(productErrors) ||
+      optionsStepHasErrors(optionsErrors)
+    ) {
       setFormErrors((prev) => ({ ...prev, ...e }));
-      setActiveTab("options");
+      if (thumbnailStepHasErrors(thumbErrors)) setActiveTab("thumbnail");
+      else if (productStepHasErrors(productErrors)) setActiveTab("product");
+      else setActiveTab("options");
       return;
     }
+
+    setFormErrors((prev) => ({
+      ...prev,
+      thumbnail: undefined,
+      title: undefined,
+      subtitle: undefined,
+      button: undefined,
+      fieldErrors: undefined,
+      productFile: undefined,
+      redirectUrl: undefined,
+      confirmationSubject: undefined,
+      confirmationBody: undefined,
+    }));
+
     const ok = await saveToApi("published");
     if (!ok) return;
     setSaveMsg("Published! Redirecting to My Store...");

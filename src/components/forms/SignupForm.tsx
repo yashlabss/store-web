@@ -389,6 +389,7 @@ export default function SignupForm() {
                 id="username"
                 name="username"
                 type="text"
+                suppressHydrationWarning
                 autoComplete="username"
                 placeholder="username"
                 aria-label="Username"
@@ -443,6 +444,7 @@ export default function SignupForm() {
                 id="fullName"
                 name="fullName"
                 type="text"
+                suppressHydrationWarning
                 autoComplete="name"
                 placeholder="Full Name"
                 aria-label="Full name"
@@ -474,6 +476,7 @@ export default function SignupForm() {
                 id="email"
                 name="email"
                 type="text"
+                suppressHydrationWarning
                 inputMode="email"
                 autoComplete="email"
                 spellCheck={false}
@@ -532,6 +535,7 @@ export default function SignupForm() {
                   <IconChevronDown className="pointer-events-none shrink-0 text-slate-400" />
                 </div>
                 <select
+                  suppressHydrationWarning
                   className="absolute inset-0 cursor-pointer rounded-lg opacity-0"
                   value={form.countryCode}
                   onChange={(e) => {
@@ -560,6 +564,7 @@ export default function SignupForm() {
                 id="phoneNumber"
                 name="phoneNumber"
                 type="tel"
+                suppressHydrationWarning
                 inputMode="numeric"
                 autoComplete="tel-national"
                 placeholder="Phone Number"
@@ -588,6 +593,7 @@ export default function SignupForm() {
                 id="password"
                 name="password"
                 type={showPassword ? "text" : "password"}
+                suppressHydrationWarning
                 autoComplete="new-password"
                 placeholder="Password"
                 aria-label="Password"
@@ -599,6 +605,7 @@ export default function SignupForm() {
               />
               <button
                 type="button"
+                suppressHydrationWarning
                 className="flex shrink-0 items-center justify-center rounded-md p-[6px] text-slate-400 transition hover:bg-slate-50 hover:text-slate-600"
                 onClick={() => setShowPassword((p) => !p)}
                 aria-label={showPassword ? "Hide password" : "Show password"}
@@ -635,6 +642,7 @@ export default function SignupForm() {
 
           <button
             type="submit"
+            suppressHydrationWarning
             disabled={loading}
             className="mt-2 w-full rounded-full bg-violet-600 py-[13px] text-[15px] font-bold text-white shadow-sm transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:bg-slate-300"
           >

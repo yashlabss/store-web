@@ -163,7 +163,7 @@ const PRODUCT_CARDS: ProductTypeCard[] = [
   {
     id: "course",
     title: "eCourse",
-    description: "Build structured online courses with modules and lessons.",
+    description: "Create, Host, and Sell your Course with Stan.",
     href: NEW,
     iconBg: "#e0e7ff",
     iconColor: "#4f46e5",
@@ -172,8 +172,8 @@ const PRODUCT_CARDS: ProductTypeCard[] = [
   {
     id: "membership",
     title: "Recurring Membership",
-    description: "Charge a recurring subscription for exclusive content or access.",
-    href: NEW,
+    description: "Charge recurring subscriptions.",
+    href: `${NEW}?kind=membership`,
     iconBg: "#d1fae5",
     iconColor: "#059669",
     icon: <IconMembership />,
@@ -181,8 +181,8 @@ const PRODUCT_CARDS: ProductTypeCard[] = [
   {
     id: "webinar",
     title: "Webinar",
-    description: "Host live or recorded webinar events for your audience.",
-    href: NEW,
+    description: "Host exclusive coaching sessions or online events with multiple customers.",
+    href: `${NEW}?kind=webinar`,
     iconBg: "#fff7ed",
     iconColor: "#ea580c",
     icon: <IconWebinar />,
@@ -190,8 +190,8 @@ const PRODUCT_CARDS: ProductTypeCard[] = [
   {
     id: "community",
     title: "Community",
-    description: "Build a paid community, forum, or member space.",
-    href: NEW,
+    description: "Host a free or paid community.",
+    href: `${NEW}?kind=community`,
     iconBg: "#ecfdf5",
     iconColor: "#10b981",
     icon: <IconCommunity />,
@@ -199,8 +199,8 @@ const PRODUCT_CARDS: ProductTypeCard[] = [
   {
     id: "url",
     title: "URL / Media",
-    description: "Share a URL, video link, or any external media with buyers.",
-    href: NEW,
+    description: "Link to website, affiliate links, or embed media like YouTube and Spotify.",
+    href: `${NEW}?kind=url-media`,
     iconBg: "#f0f9ff",
     iconColor: "#0284c7",
     icon: <IconUrl />,
@@ -208,8 +208,8 @@ const PRODUCT_CARDS: ProductTypeCard[] = [
   {
     id: "affiliate",
     title: "Stan Affiliate Link",
-    description: "Earn commissions by promoting products you love.",
-    href: NEW,
+    description: "Refer a friend and receive a percentage of their Stan subscription each month.",
+    href: `${NEW}?kind=affiliate`,
     iconBg: "#fff1f2",
     iconColor: "#e11d48",
     icon: <IconAffiliate />,
