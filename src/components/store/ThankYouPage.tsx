@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { API_PUBLIC_BASE } from "../../lib/api";
 
 const PURPLE = "#6b46ff";
@@ -11,6 +12,7 @@ type Delivery = {
   type: string;
   file_name: string | null;
   redirect_url: string | null;
+  download_links?: Array<{ label: string; url: string }>;
 };
 
 type OrderPayload = {
@@ -25,31 +27,55 @@ type OrderPayload = {
     product_title: string | null;
   };
   delivery: Delivery;
+  delivery_status?: {
+    email?: { status?: string; provider?: string | null; sent_at?: string | null };
+    whatsapp?: { status?: string; provider?: string | null; sent_at?: string | null };
+  };
 };
 
+function prettyStatus(value: string | undefined) {
+  const status = String(value || "not_requested").toLowerCase();
+  if (status === "sent") return "Sent";
+  if (status === "failed") return "Failed";
+  if (status === "queued") return "Queued";
+  if (status === "not_configured") return "Not configured";
+  return "Not requested";
+}
+
 export default function ThankYouPage() {
+  const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
   const username = typeof params?.username === "string" ? params.username : "";
   const orderId = searchParams.get("order");
+  const token = searchParams.get("token");
+  const hasAccessParams = Boolean(orderId && token);
 
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(hasAccessParams);
+  const [error, setError] = useState(
+    hasAccessParams
+      ? ""
+      : "Missing order access details. Return to the store and complete purchase again."
+  );
   const [data, setData] = useState<OrderPayload | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState("");
 
   useEffect(() => {
-    if (!orderId) {
-      setLoading(false);
-      setError("Missing order. Return to the store and complete a purchase.");
-      return;
-    }
+    if (typeof window === "undefined") return;
+    const authToken = localStorage.getItem("auth_token");
+    if (authToken) return;
+    const redirectTo = `${window.location.pathname}${window.location.search}`;
+    router.replace(`/auth/login?redirectTo=${encodeURIComponent(redirectTo)}`);
+  }, [router]);
+
+  useEffect(() => {
+    if (!hasAccessParams || !orderId || !token) return;
     let cancelled = false;
-    setLoading(true);
-    setError("");
     void (async () => {
       try {
         const res = await fetch(
-          `${API_PUBLIC_BASE}/order/${encodeURIComponent(orderId)}`,
+          `${API_PUBLIC_BASE}/order/${encodeURIComponent(orderId)}?token=${encodeURIComponent(token)}`,
           { cache: "no-store" }
         );
         const json = await res.json().catch(() => ({}));
@@ -64,7 +90,7 @@ export default function ThankYouPage() {
     return () => {
       cancelled = true;
     };
-  }, [orderId]);
+  }, [hasAccessParams, orderId, token]);
 
   if (loading) {
     return (
@@ -85,10 +111,44 @@ export default function ThankYouPage() {
     );
   }
 
-  const { order, delivery } = data;
+  const { order, delivery, delivery_status: status } = data;
   const amount = Number(order.amount) || 0;
   const showRedirect =
     delivery.type === "redirect" && delivery.redirect_url && /^https?:\/\//i.test(delivery.redirect_url);
+  const firstDownload = delivery.download_links?.[0];
+
+  const triggerDownload = async () => {
+    if (!token) return;
+    setDownloading(true);
+    setDownloadError("");
+    try {
+      const res = await fetch(`${API_PUBLIC_BASE}/download`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.message || "Could not generate download.");
+      const url = String(json?.url || "");
+      const fileName = String(json?.file_name || delivery.file_name || "download");
+      if (!url) throw new Error("Download URL is unavailable.");
+      const fileRes = await fetch(url);
+      if (!fileRes.ok) throw new Error("Could not fetch product file.");
+      const blob = await fileRes.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(blobUrl);
+    } catch (e) {
+      setDownloadError(e instanceof Error ? e.message : "Download failed.");
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#fafbff] pb-28">
@@ -127,10 +187,34 @@ export default function ThankYouPage() {
               >
                 Open download link
               </a>
+            ) : firstDownload?.url ? (
+              <button
+                type="button"
+                onClick={() => void triggerDownload()}
+                disabled={downloading}
+                className="mt-3 flex w-full items-center justify-center rounded-full py-3.5 text-[15px] font-bold text-white transition hover:opacity-95"
+                style={{ backgroundColor: PURPLE }}
+              >
+                {downloading ? "Preparing download..." : "Download file"}
+              </button>
             ) : delivery.file_name ? (
-              <p className="mt-2 text-sm text-slate-600">
-                Your file: <span className="font-medium text-slate-900">{delivery.file_name}</span>
-              </p>
+              <>
+                <p className="mt-2 text-sm text-slate-600">
+                  Your file: <span className="font-medium text-slate-900">{delivery.file_name}</span>
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void triggerDownload()}
+                  disabled={downloading}
+                  className="mt-3 flex w-full items-center justify-center rounded-full py-3.5 text-[15px] font-bold text-white transition hover:opacity-95 disabled:opacity-60"
+                  style={{ backgroundColor: PURPLE }}
+                >
+                  {downloading ? "Preparing download..." : "Download now"}
+                </button>
+                {downloadError ? (
+                  <p className="mt-2 text-sm font-medium text-red-600">{downloadError}</p>
+                ) : null}
+              </>
             ) : (
               <p className="mt-2 text-sm text-slate-600">
                 The creator will deliver this product according to their settings. Keep this confirmation for your
@@ -138,8 +222,18 @@ export default function ThankYouPage() {
               </p>
             )}
             <p className="mt-4 text-xs text-slate-500">
-              In production, a receipt email is sent automatically (e.g. from your platform domain). This demo does not
-              send email.
+              Receipt and delivery are sent to your email and WhatsApp when configured by the seller.
+            </p>
+          </div>
+          <div className="mt-5 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Delivery Status</p>
+            <p className="mt-2 text-sm text-slate-700">
+              Email: <span className="font-semibold text-slate-900">{prettyStatus(status?.email?.status)}</span>
+              {status?.email?.provider ? ` (${status.email.provider})` : ""}
+            </p>
+            <p className="mt-1 text-sm text-slate-700">
+              WhatsApp: <span className="font-semibold text-slate-900">{prettyStatus(status?.whatsapp?.status)}</span>
+              {status?.whatsapp?.provider ? ` (${status.whatsapp.provider})` : ""}
             </p>
           </div>
 

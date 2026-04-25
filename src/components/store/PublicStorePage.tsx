@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { parsePhoneNumberFromString } from "libphonenumber-js";
 import { API_PUBLIC_BASE } from "../../lib/api";
 
 const PURPLE = "#6b46ff";
@@ -28,6 +29,20 @@ type PublicStorePayload = {
   store: { username: string; display_name: string };
   products: PublicProduct[];
 };
+
+type CheckoutErrors = {
+  email: string;
+  whatsapp: string;
+};
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const COUNTRY_CODES = [
+  { label: "IN (+91)", value: "+91" },
+  { label: "US (+1)", value: "+1" },
+  { label: "UK (+44)", value: "+44" },
+  { label: "AE (+971)", value: "+971" },
+  { label: "SG (+65)", value: "+65" },
+];
 
 function displayPrice(p: PublicProduct): number {
   const cj = p.checkout_json || {};
@@ -63,45 +78,78 @@ export default function PublicStorePage({ username }: { username: string }) {
   const [data, setData] = useState<PublicStorePayload | null>(null);
   const [buyerName, setBuyerName] = useState("");
   const [buyerEmail, setBuyerEmail] = useState("");
+  const [buyerCountryCode, setBuyerCountryCode] = useState("+91");
+  const [buyerWhatsapp, setBuyerWhatsapp] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<CheckoutErrors>({
+    email: "",
+    whatsapp: "",
+  });
   const [busyId, setBusyId] = useState<string | null>(null);
   const [toast, setToast] = useState("");
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const res = await fetch(
-        `${API_PUBLIC_BASE}/store/${encodeURIComponent(username)}`,
-        { cache: "no-store" }
-      );
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(json.message || "Could not load store.");
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `${API_PUBLIC_BASE}/store/${encodeURIComponent(username)}`,
+          { cache: "no-store" }
+        );
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(json.message || "Could not load store.");
+        }
+        if (!cancelled) setData(json as PublicStorePayload);
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : "Could not load store.");
+          setData(null);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      setData(json as PublicStorePayload);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not load store.");
-      setData(null);
-    } finally {
-      setLoading(false);
-    }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [username]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const validateInputs = (): { ok: boolean; whatsappE164: string | null } => {
+    const email = buyerEmail.trim();
+    const whatsappRaw = buyerWhatsapp.trim();
+    const next: CheckoutErrors = { email: "", whatsapp: "" };
+    let whatsappE164: string | null = null;
 
-  const purchase = async (productId: string) => {
-    let email = buyerEmail.trim();
-    if (!email && typeof window !== "undefined") {
-      const entered = window.prompt("Enter your email to continue:");
-      if (entered) {
-        email = entered.trim();
-        setBuyerEmail(email);
+    if (!email) {
+      next.email = "Email is required.";
+    } else if (!EMAIL_REGEX.test(email)) {
+      next.email = "Please enter a valid email address.";
+    }
+
+    if (whatsappRaw) {
+      const candidate = whatsappRaw.startsWith("+")
+        ? whatsappRaw
+        : `${buyerCountryCode}${whatsappRaw}`;
+      const parsed = parsePhoneNumberFromString(candidate);
+      if (!parsed || !parsed.isValid()) {
+        next.whatsapp = "Please enter a valid WhatsApp number (use country code).";
+      } else {
+        whatsappE164 = parsed.number;
       }
     }
-    if (!email) {
-      setToast("Enter your email to complete purchase.");
+
+    setFieldErrors(next);
+    return {
+      ok: !next.email && !next.whatsapp,
+      whatsappE164,
+    };
+  };
+
+  const purchase = async (productId: string) => {
+    const email = buyerEmail.trim();
+    const validation = validateInputs();
+    if (!validation.ok) {
+      setToast("Please fix the highlighted fields.");
       window.setTimeout(() => setToast(""), 4000);
       return;
     }
@@ -114,14 +162,21 @@ export default function PublicStorePage({ username }: { username: string }) {
         body: JSON.stringify({
           product_id: productId,
           buyer_email: email,
+          ...(validation.whatsappE164
+            ? { buyer_whatsapp: validation.whatsappE164 }
+            : {}),
           ...(buyerName.trim() ? { buyer_name: buyerName.trim() } : {}),
         }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.message || "Purchase failed.");
       const orderId = json?.order?.id as string | undefined;
+      const token = json?.token as string | undefined;
       if (orderId) {
-        router.push(`/${encodeURIComponent(username)}/thank-you?order=${encodeURIComponent(orderId)}`);
+        const base = `/${encodeURIComponent(username)}/thank-you?order=${encodeURIComponent(orderId)}`;
+        router.push(
+          token ? `${base}&token=${encodeURIComponent(token)}` : base
+        );
         return;
       }
       setToast("Purchase saved. Thank you!");
@@ -226,6 +281,73 @@ export default function PublicStorePage({ username }: { username: string }) {
                         </span>
                         Ready To Download
                       </p>
+                      <label className="sr-only" htmlFor={`buyer-name-${p.id}`}>
+                        Your name
+                      </label>
+                      <input
+                        id={`buyer-name-${p.id}`}
+                        type="text"
+                        value={buyerName}
+                        onChange={(e) => setBuyerName(e.target.value)}
+                        placeholder="Your name (optional)"
+                        autoComplete="name"
+                        className="mb-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-violet-400"
+                      />
+                      <label className="sr-only" htmlFor={`buyer-email-${p.id}`}>
+                        Email
+                      </label>
+                      <input
+                        id={`buyer-email-${p.id}`}
+                        type="email"
+                        value={buyerEmail}
+                        onChange={(e) => {
+                          setBuyerEmail(e.target.value);
+                          if (fieldErrors.email) {
+                            setFieldErrors((prev) => ({ ...prev, email: "" }));
+                          }
+                        }}
+                        placeholder="Email (required)"
+                        autoComplete="email"
+                        required
+                        className="mb-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-violet-400"
+                      />
+                      {fieldErrors.email ? (
+                        <p className="mb-2 text-xs font-medium text-red-600">{fieldErrors.email}</p>
+                      ) : null}
+                      <label className="sr-only" htmlFor={`buyer-whatsapp-${p.id}`}>
+                        WhatsApp number
+                      </label>
+                      <div className="mb-1 flex gap-2">
+                        <select
+                          value={buyerCountryCode}
+                          onChange={(e) => setBuyerCountryCode(e.target.value)}
+                          aria-label="Country code"
+                          className="w-[120px] rounded-xl border border-slate-200 px-2 py-2 text-sm outline-none focus:border-violet-400"
+                        >
+                          {COUNTRY_CODES.map((code) => (
+                            <option key={code.value} value={code.value}>
+                              {code.label}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          id={`buyer-whatsapp-${p.id}`}
+                          type="tel"
+                          value={buyerWhatsapp}
+                          onChange={(e) => {
+                            setBuyerWhatsapp(e.target.value);
+                            if (fieldErrors.whatsapp) {
+                              setFieldErrors((prev) => ({ ...prev, whatsapp: "" }));
+                            }
+                          }}
+                          placeholder="WhatsApp number (optional)"
+                          autoComplete="tel-national"
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-violet-400"
+                        />
+                      </div>
+                      {fieldErrors.whatsapp ? (
+                        <p className="mb-2 text-xs font-medium text-red-600">{fieldErrors.whatsapp}</p>
+                      ) : null}
                       <button
                         type="button"
                         disabled={busyId === p.id}
@@ -233,10 +355,7 @@ export default function PublicStorePage({ username }: { username: string }) {
                         className="w-full rounded-full py-3 text-[18px] font-bold text-white transition hover:opacity-95 disabled:opacity-60"
                         style={{ backgroundColor: "#0a7a69" }}
                       >
-                        {busyId === p.id ? "Processing…" : p.button_text || "Buy now"}
-                      </button>
-                      <button type="button" className="mt-3 w-full text-center text-sm font-semibold text-[#0a7a69]">
-                        Learn More
+                        {busyId === p.id ? "Processing payment..." : "Pay"}
                       </button>
                     </div>
                   </article>
