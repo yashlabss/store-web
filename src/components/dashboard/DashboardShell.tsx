@@ -19,8 +19,8 @@ import {
   IconWallet,
 } from "./dashboardIcons";
 
-const PURPLE = "#6b46ff";
-export const SIDEBAR_BG = "#f3f4fd";
+const PURPLE = "#1f2a44";
+export const SIDEBAR_BG = "#f3f0ea";
 
 export type NavContext = "store-home" | "add-product" | "income";
 
@@ -99,7 +99,7 @@ export default function DashboardShell({
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const storeUrl = `yash.store/${handle}`;
+  const storeUrl = `stan.store/${handle}`;
   const fullUrl = `https://${storeUrl}`;
 
   const copyStoreUrl = useCallback(async () => {
@@ -117,8 +117,8 @@ export default function DashboardShell({
   const navLinkClass = (active: boolean) =>
     `flex items-center gap-3 rounded-2xl px-3 py-2.5 text-[15px] font-medium transition-colors ${
       active
-        ? "bg-white text-[#1e1648] shadow-sm"
-        : "text-slate-600 hover:bg-white/60 hover:text-slate-900"
+        ? "bg-white text-[#1f2a44] shadow-sm ring-1 ring-[#e7dcc9]"
+        : "text-slate-600 hover:bg-white/70 hover:text-[#1f2a44]"
     }`;
 
   const NAV = navItems(navContext);
@@ -127,7 +127,7 @@ export default function DashboardShell({
     <div className="flex h-full min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-2.5 px-3 pt-2 lg:pt-0">
         <LogoMark />
-        <span className="text-[1.35rem] font-bold tracking-tight text-[#1e1648]">Yash</span>
+        <span className="text-[1.35rem] font-bold tracking-tight text-[#1f2a44]">Stan</span>
       </div>
 
       <nav className="mt-6 flex flex-col gap-0.5 px-2 lg:mt-8" aria-label="Main">
@@ -136,7 +136,7 @@ export default function DashboardShell({
           const content = (
             <>
               <item.Icon
-                className={`shrink-0 ${active ? "text-[#6b46ff]" : "text-slate-500"}`}
+                className={`shrink-0 ${active ? "text-[#1f2a44]" : "text-slate-500"}`}
               />
               {item.label}
             </>
@@ -154,13 +154,13 @@ export default function DashboardShell({
         })}
       </nav>
 
-      <div className="mt-auto flex flex-col gap-1 border-t border-slate-200/80 pt-4">
+      <div className="mt-auto flex flex-col gap-1 border-t border-[#e7dcc9]/80 pt-4">
         <a
           href="#"
-          className="flex items-center gap-3 rounded-2xl px-3 py-2.5 text-[15px] font-medium text-slate-600 hover:bg-white/60"
+          className="flex items-center gap-3 rounded-2xl px-3 py-2.5 text-[15px] font-medium text-slate-600 hover:bg-white/70"
           onClick={closeMobileNav}
         >
-          <IconGear className="shrink-0 text-slate-500" />
+          <IconGear className="shrink-0 text-[#b08d57]" />
           Settings
         </a>
         <div className="flex items-center gap-3 rounded-2xl px-3 py-2">
@@ -171,7 +171,7 @@ export default function DashboardShell({
           >
             {showName.trim().charAt(0).toUpperCase() || "?"}
           </div>
-          <span className="truncate text-[15px] font-semibold text-[#1e1648]">{showName}</span>
+          <span className="truncate text-[15px] font-semibold text-[#1f2a44]">{showName}</span>
         </div>
         <button
           type="button"
@@ -179,7 +179,7 @@ export default function DashboardShell({
             closeMobileNav();
             onSignOut();
           }}
-          className="px-3 pb-2 text-left text-[13px] font-medium text-slate-500 underline-offset-2 hover:text-slate-800 hover:underline"
+          className="px-3 pb-2 text-left text-[13px] font-medium text-slate-500 underline-offset-2 hover:text-[#1f2a44] hover:underline"
         >
           Sign out
         </button>
@@ -188,22 +188,22 @@ export default function DashboardShell({
   );
 
   return (
-    <div className="min-h-screen w-full bg-white">
+    <div className="min-h-screen w-full bg-gradient-to-b from-[#faf8f4] via-white to-white">
       <header
-        className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-3 lg:hidden"
+        className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-[#e7dcc9] bg-white/95 px-4 py-3 backdrop-blur lg:hidden"
         style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}
       >
         <button
           type="button"
           onClick={() => setMobileNavOpen(true)}
-          className="flex h-11 w-11 items-center justify-center rounded-xl text-slate-700 hover:bg-slate-50"
+          className="flex h-11 w-11 items-center justify-center rounded-xl text-slate-700 hover:bg-[#f7f1e6]"
           aria-label="Open menu"
         >
           <IconMenu />
         </button>
         <div className="flex flex-1 items-center justify-center gap-2">
           <LogoMark />
-          <span className="text-lg font-bold text-[#1e1648]">Yash</span>
+          <span className="text-lg font-bold text-[#1f2a44]">Stan</span>
         </div>
         <div className="w-11 shrink-0" aria-hidden />
       </header>
@@ -219,7 +219,7 @@ export default function DashboardShell({
 
       <div className="flex min-h-[calc(100dvh-57px)] flex-col lg:min-h-screen lg:flex-row">
         <aside
-          className={`fixed inset-y-0 left-0 z-50 flex w-[min(280px,88vw)] flex-col overflow-y-auto border-r border-slate-100/80 px-3 pb-6 pt-3 transition-transform duration-200 ease-out lg:static lg:z-auto lg:min-h-screen lg:w-[248px] lg:shrink-0 lg:translate-x-0 lg:overflow-visible lg:px-4 lg:pb-8 lg:pt-8 lg:shadow-none ${
+          className={`fixed inset-y-0 left-0 z-50 flex w-[min(280px,88vw)] flex-col overflow-y-auto border-r border-[#e7dcc9]/80 px-3 pb-6 pt-3 transition-transform duration-200 ease-out lg:static lg:z-auto lg:min-h-screen lg:w-[248px] lg:shrink-0 lg:translate-x-0 lg:overflow-visible lg:px-4 lg:pb-8 lg:pt-8 lg:shadow-none ${
             mobileNavOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full lg:translate-x-0"
           }`}
           style={{ backgroundColor: SIDEBAR_BG }}
@@ -228,7 +228,7 @@ export default function DashboardShell({
             <button
               type="button"
               onClick={closeMobileNav}
-              className="flex h-10 w-10 items-center justify-center rounded-xl text-slate-600 hover:bg-white/70"
+              className="flex h-10 w-10 items-center justify-center rounded-xl text-slate-600 hover:bg-white/80"
               aria-label="Close menu"
             >
               <IconClose />
@@ -237,38 +237,42 @@ export default function DashboardShell({
           {sidebarContent}
         </aside>
 
-        <div className="flex min-h-0 flex-1 flex-col lg:min-w-0 lg:flex-row">
-          <main
-            className="min-w-0 flex-1 overflow-y-auto px-5 py-6 lg:py-8 [scrollbar-gutter:stable]"
-          >
-            <div className="w-full">
-              <div className="flex w-full items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">{topLeft}</div>
-                <div className="ml-auto flex shrink-0 items-center gap-2">
-                  <span className="text-sm font-medium text-slate-600">{storeUrl}</span>
-                  <button
-                    type="button"
-                    onClick={() => void copyStoreUrl()}
-                    className="flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    <IconCopy className="text-slate-500" />
-                    {copied ? "Copied" : "Copy"}
-                  </button>
-                </div>
-              </div>
-
-              {children}
+        <div className="flex min-h-0 flex-1 flex-col lg:min-w-0">
+          <div className="flex w-full items-center justify-between gap-3 border-b border-[#e7dcc9] px-5 py-3 lg:px-8">
+            <div className="min-w-0 flex-1">{topLeft}</div>
+            <div className="ml-auto flex shrink-0 items-center gap-2">
+              <span className="text-sm font-medium text-[#1f2a44]">{storeUrl}</span>
+              <button
+                type="button"
+                onClick={() => void copyStoreUrl()}
+                className="flex shrink-0 items-center gap-1 rounded-lg border border-[#e7dcc9] bg-white px-2 py-1.5 text-xs font-semibold text-[#1f2a44] hover:bg-[#f7f1e6]"
+              >
+                <IconCopy className="text-[#b08d57]" />
+                {copied ? "Copied" : "Copy"}
+              </button>
             </div>
-          </main>
+          </div>
 
-          {preview ? (
-            <aside
-              className="shrink-0 border-t border-slate-100 bg-[#fafbff] px-4 py-8 lg:w-[min(380px,38vw)] lg:border-l lg:border-t-0 lg:bg-white lg:py-10 lg:pl-6 lg:pr-8"
-              aria-label="Preview"
+          <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+            <main
+              className={`min-w-0 flex-1 overflow-y-auto px-5 py-6 lg:py-8 [scrollbar-gutter:stable] ${
+                preview
+                  ? "lg:pr-[calc(20rem+clamp(1.75rem,3.5vw,2.75rem)+clamp(1rem,2.5vw,1.75rem))]"
+                  : ""
+              }`}
             >
-              {preview}
-            </aside>
-          ) : null}
+              <div className="w-full">{children}</div>
+            </main>
+
+            {preview ? (
+              <aside
+                className="shrink-0 bg-[#f9f8f6] px-4 py-8 lg:fixed lg:right-[clamp(1rem,2.5vw,1.75rem)] lg:top-[5.25rem] lg:z-20 lg:flex lg:max-h-[calc(100dvh-6rem)] lg:w-80 lg:max-w-[min(20rem,calc(100vw-2rem))] lg:flex-col lg:items-center lg:justify-center lg:overflow-y-auto lg:border-0 lg:bg-[#f9f8f6] lg:px-4 lg:py-6 lg:[-ms-overflow-style:none] lg:[scrollbar-width:none] lg:[&::-webkit-scrollbar]:hidden lg:shadow-none"
+                aria-label="Preview"
+              >
+                {preview}
+              </aside>
+            ) : null}
+          </div>
         </div>
       </div>
     </div>

@@ -10,6 +10,7 @@ type Props = {
   handle: string;
   showName: string;
   onSignOut: () => void;
+  mode?: "product" | "landing";
 };
 
 type ProductTypeCard = {
@@ -120,8 +121,9 @@ function IconAffiliate() {
 
 // Ordered so they interleave: left[0], right[0], left[1], right[1]... for 2-column grid
 const NEW = "/dashboard/store/product/new";
+const NEW_LANDING = "/dashboard/store/product/new?kind=landing";
 
-const CARDS: ProductTypeCard[] = [
+const PRODUCT_CARDS: ProductTypeCard[] = [
   {
     id: "emails",
     title: "Collect Emails / Applications",
@@ -144,7 +146,7 @@ const CARDS: ProductTypeCard[] = [
     id: "coaching",
     title: "Coaching",
     description: "Sell 1:1 sessions with built-in scheduling and reminders.",
-    href: NEW,
+    href: `${NEW}?kind=coaching`,
     iconBg: "#fce7f3",
     iconColor: "#db2777",
     icon: <IconCoaching />,
@@ -153,7 +155,7 @@ const CARDS: ProductTypeCard[] = [
     id: "custom",
     title: "Custom Product",
     description: "Create a one-of-a-kind offer tailored to your audience.",
-    href: NEW,
+    href: `${NEW}?kind=custom`,
     iconBg: "#fdf4ff",
     iconColor: "#9333ea",
     icon: <IconCustom />,
@@ -214,12 +216,91 @@ const CARDS: ProductTypeCard[] = [
   },
 ];
 
+const LANDING_CARDS: ProductTypeCard[] = [
+  {
+    id: "lead-magnet",
+    title: "Collect Emails / Applications",
+    description: "Collect Your Audience Info with a Lead Magnet",
+    href: NEW_LANDING,
+    iconBg: "#fff7ed",
+    iconColor: "#c2410c",
+    icon: <IconEmail />,
+  },
+  {
+    id: "waitlist",
+    title: "Digital Product",
+    description: "PDFs, Guides, Templates, Exclusive Content, eBooks, etc.",
+    href: NEW_LANDING,
+    iconBg: "#ecfeff",
+    iconColor: "#0e7490",
+    icon: <IconDigital />,
+  },
+  {
+    id: "webinar-signup",
+    title: "Coaching Call",
+    description: "Book Discovery Calls, Paid Coaching",
+    href: NEW_LANDING,
+    iconBg: "#ede9fe",
+    iconColor: "#6d28d9",
+    icon: <IconCoaching />,
+  },
+  {
+    id: "sales-page",
+    title: "Custom Product",
+    description: "\"Ask Me Anything\" requests, Audits/Analyses, Video Reviews",
+    href: NEW_LANDING,
+    iconBg: "#dcfce7",
+    iconColor: "#047857",
+    icon: <IconCustom />,
+  },
+  {
+    id: "course-launch",
+    title: "eCourse",
+    description: "Create, Host, and Sell your Course with Stan",
+    href: NEW_LANDING,
+    iconBg: "#fef3c7",
+    iconColor: "#b45309",
+    icon: <IconCourse />,
+  },
+  {
+    id: "coaching-funnel",
+    title: "Recurring Membership",
+    description: "Charge Recurring Subscriptions",
+    href: NEW_LANDING,
+    iconBg: "#fce7f3",
+    iconColor: "#be185d",
+    icon: <IconMembership />,
+  },
+  {
+    id: "link-hub",
+    title: "Webinar",
+    description: "Host exclusive coaching sessions or online events with multiple customers",
+    href: NEW_LANDING,
+    iconBg: "#e0f2fe",
+    iconColor: "#0369a1",
+    icon: <IconWebinar />,
+  },
+  {
+    id: "custom-landing",
+    title: "Community",
+    description: "Host free or paid community",
+    href: NEW_LANDING,
+    iconBg: "#f3e8ff",
+    iconColor: "#7e22ce",
+    icon: <IconCommunity />,
+  },
+];
+
 export default function ChooseProductTypeClient({
   displayName,
   handle,
   showName,
   onSignOut,
+  mode = "product",
 }: Props) {
+  const isLanding = mode === "landing";
+  const cards = isLanding ? LANDING_CARDS : PRODUCT_CARDS;
+
   return (
     <DashboardShell
       displayName={displayName}
@@ -241,17 +322,21 @@ export default function ChooseProductTypeClient({
               My Store
             </Link>
             <span className="text-slate-400">/</span>
-            <span className="font-bold text-slate-900">Add a new product</span>
+            <span className="font-bold text-slate-900">
+              {isLanding ? "Add a landing page" : "Add a new product"}
+            </span>
           </nav>
         </div>
       }
     >
       <div className="mt-8">
         <h2 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
-          Choose Product type
+          {isLanding ? "Choose Landing Page type" : "Choose Product type"}
         </h2>
         <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-slate-500">
-          Pick the format that best fits what you&apos;re selling - guides, courses, coaching, or more!
+          {isLanding
+            ? "Pick a landing page goal and start with a focused template designed for conversion."
+            : "Pick the format that best fits what you&apos;re selling - guides, courses, coaching, or more!"}
         </p>
         <div className="mt-4">
           <a
@@ -268,7 +353,7 @@ export default function ChooseProductTypeClient({
         </div>
 
         <ul className="mt-8 grid w-full grid-cols-2 gap-4">
-          {CARDS.map((c) => (
+          {cards.map((c) => (
             <li key={c.id} className="flex">
               <Link
                 href={c.href}
