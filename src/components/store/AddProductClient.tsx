@@ -257,6 +257,14 @@ type ReviewItemErrors = {
   text?: string;
 };
 
+type EmailFlowItem = {
+  id: string;
+  name: string;
+  trigger_type?: string;
+  is_active?: boolean;
+  config_json?: Record<string, unknown>;
+};
+
 function validateUrlHttp(u: string): boolean {
   const t = u.trim();
   if (!t) return false;
@@ -965,6 +973,8 @@ export default function AddProductClient({
   const [reminderOpen, setReminderOpen] = useState(false);
   const [reminderEnabled, setReminderEnabled] = useState(true);
   const [emailFlowIds, setEmailFlowIds] = useState<string[]>([]);
+  const [availableFlows, setAvailableFlows] = useState<EmailFlowItem[]>([]);
+  const [flowsLoading, setFlowsLoading] = useState(false);
   const [confirmationSubject, setConfirmationSubject] = useState(DEFAULT_CONFIRMATION_SUBJECT);
   const [confirmationBody, setConfirmationBody] = useState(DEFAULT_CONFIRMATION_BODY);
   const [reminderSubject, setReminderSubject] = useState(DEFAULT_REMINDER_SUBJECT);
@@ -1046,6 +1056,70 @@ export default function AddProductClient({
 
   const token =
     typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    void (async () => {
+      setFlowsLoading(true);
+      try {
+        const res = await fetch(`${API_PRODUCTS_BASE}/email-flows`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          flows?: EmailFlowItem[];
+        };
+        if (!res.ok) return;
+        if (!cancelled) {
+          setAvailableFlows(Array.isArray(data.flows) ? data.flows : []);
+        }
+      } finally {
+        if (!cancelled) setFlowsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  const addEmailFlow = useCallback(async () => {
+    if (!token) {
+      setSaveMsg("Please log in again.");
+      return;
+    }
+    const index = emailFlowIds.length + 1;
+    try {
+      const res = await fetch(`${API_PRODUCTS_BASE}/email-flows`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: `Email flow ${index}`,
+          trigger_type: "purchase_success",
+          is_active: true,
+          config_json: {
+            subject: "Quick update on your {{product_title}} purchase",
+            body:
+              "Hi {{name}},\n\nThanks again for purchasing {{product_title}}. We will send your next update shortly.",
+          },
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        flow?: EmailFlowItem;
+        message?: string;
+      };
+      if (!res.ok || !data.flow?.id) {
+        throw new Error(data.message || "Could not create email flow.");
+      }
+      setAvailableFlows((prev) => [data.flow as EmailFlowItem, ...prev]);
+      setEmailFlowIds((ids) => [...ids, data.flow!.id]);
+    } catch (e) {
+      setSaveMsg(e instanceof Error ? e.message : "Could not create email flow.");
+    }
+  }, [token, emailFlowIds.length]);
 
   const ensureCheckoutDefaults = useCallback(() => {
     const k = (searchParams.get("kind") || "").toLowerCase();
@@ -1518,9 +1592,15 @@ export default function AddProductClient({
     }
   }, [searchParams]);
 
-  const buildBody = useCallback((saveStatus: "draft" | "published", activeTabOverride?: TabKey) => {
-    const tabForSave = activeTabOverride ?? activeTab;
-    return {
+  const buildBody = useCallback(
+    (
+      saveStatus: "draft" | "published",
+      activeTabOverride?: TabKey,
+      emailFlowIdsOverride?: string[]
+    ) => {
+      const tabForSave = activeTabOverride ?? activeTab;
+      const flows = emailFlowIdsOverride ?? emailFlowIds;
+      return {
       id: productId || undefined,
       status: saveStatus,
       active_tab:
@@ -1574,7 +1654,7 @@ export default function AddProductClient({
           body: reminderBody.slice(0, CONFIRMATION_BODY_MAX),
           timings: reminderTimings,
         },
-        email_flows: emailFlowIds.map((id) => ({ id })),
+        email_flows: flows.map((id) => ({ id })),
         reviews: reviews.map((r) => ({
           id: r.id,
           rating: Math.max(1, Math.min(5, Number(r.rating) || 5)),
@@ -1584,7 +1664,8 @@ export default function AddProductClient({
         })),
       },
     };
-  }, [
+  },
+  [
     productId,
     activeTab,
     style,
@@ -1631,7 +1712,12 @@ export default function AddProductClient({
   ]);
 
   const saveToApi = useCallback(
-    async (saveStatus: "draft" | "published" = "draft", activeTabOverride?: TabKey): Promise<boolean> => {
+    async (
+      saveStatus: "draft" | "published" = "draft",
+      second?: TabKey | string[]
+    ): Promise<boolean> => {
+      const activeTabOverride = Array.isArray(second) ? undefined : second;
+      const emailFlowIdsOverride = Array.isArray(second) ? second : undefined;
       if (!token) return false;
       setSaving(true);
       setSaveMsg("");
@@ -1642,7 +1728,7 @@ export default function AddProductClient({
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(buildBody(saveStatus, activeTabOverride)),
+          body: JSON.stringify(buildBody(saveStatus, activeTabOverride, emailFlowIdsOverride)),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.message || "Save failed.");
@@ -4925,13 +5011,7 @@ export default function AddProductClient({
                   </div>
                   <button
                     type="button"
-                    onClick={() => {
-                      const id =
-                        typeof crypto !== "undefined" && "randomUUID" in crypto
-                          ? crypto.randomUUID()
-                          : `flow-${Date.now()}`;
-                      setEmailFlowIds((ids) => [...ids, id]);
-                    }}
+                    onClick={() => void addEmailFlow()}
                     className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:opacity-95"
                     style={{ backgroundColor: PURPLE }}
                   >
@@ -4948,11 +5028,22 @@ export default function AddProductClient({
                       >
                         <span className="font-medium text-slate-800">
                           Email flow {i + 1}
-                          <span className="ml-2 font-normal text-slate-400">(configure in a future update)</span>
+                          <span className="ml-2 font-normal text-slate-400">
+                            {availableFlows.find((flow) => flow.id === fid)?.name || fid}
+                          </span>
                         </span>
                         <button
                           type="button"
-                          onClick={() => setEmailFlowIds((ids) => ids.filter((x) => x !== fid))}
+                          onClick={() => {
+                            const next = emailFlowIds.filter((x) => x !== fid);
+                            setEmailFlowIds(next);
+                            if (productId && token) {
+                              void saveToApi(
+                                listingStatus === "published" ? "published" : "draft",
+                                next
+                              );
+                            }
+                          }}
                           className="rounded-lg px-2 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50"
                         >
                           Remove
@@ -4960,6 +5051,11 @@ export default function AddProductClient({
                       </li>
                     ))}
                   </ul>
+                ) : null}
+                {flowsLoading ? (
+                  <p className="mt-2 text-xs text-slate-500">
+                    Loading email flows...
+                  </p>
                 ) : null}
               </div>
             ) : null}
