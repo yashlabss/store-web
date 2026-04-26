@@ -772,21 +772,59 @@ export default function StanDashboard({ displayName, handle, showName, onSignOut
       const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
       if (!token) throw new Error("Please log in again.");
       const source = (products || []).find((p) => p.id === id);
-      const res = await fetch("/api/landing-pages", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          title: `${source?.title || "Product"} Landing Page`,
-          location: "landing",
-          status: "draft",
-          data: { source_product_id: id },
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error((data as { message?: string }).message || "Could not create landing page.");
+      const createViaLandingApi = async () => {
+        const res = await fetch("/api/landing-pages", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            title: `${source?.title || "Product"} Landing Page`,
+            location: "landing",
+            status: "draft",
+            data: { source_product_id: id },
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error((data as { message?: string }).message || "Could not create landing page.");
+      };
+      const createViaProductsDraftFallback = async () => {
+        const res = await fetch(`${API_PRODUCTS_BASE}/draft`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            status: "draft",
+            active_tab: "thumbnail",
+            style: source?.style || "callout",
+            title: `${source?.title || "Product"} Landing Page`,
+            subtitle: source?.subtitle || "",
+            button_text: source?.button_text || "Learn More",
+            price_numeric: Number(source?.price_numeric) || 0,
+            thumbnail_url: source?.thumbnail_url || null,
+            checkout_json: {
+              ...((source?.checkout_json || {}) as Record<string, unknown>),
+              location: "landing",
+              data: { source_product_id: id },
+            },
+            options_json: {
+              ...((source?.options_json || {}) as Record<string, unknown>),
+              location: "landing",
+              data: { source_product_id: id },
+            },
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error((data as { message?: string }).message || "Could not create landing page.");
+      };
+      try {
+        await createViaLandingApi();
+      } catch {
+        await createViaProductsDraftFallback();
+      }
       setActionMsg("Landing page created.");
       window.setTimeout(() => {
         window.location.href = "/dashboard?tab=landing";
