@@ -164,7 +164,7 @@ const PRODUCT_CARDS: ProductTypeCard[] = [
     id: "course",
     title: "eCourse",
     description: "Create, Host, and Sell your Course with Stan.",
-    href: NEW,
+    href: `${NEW}?kind=course`,
     iconBg: "#e0e7ff",
     iconColor: "#4f46e5",
     icon: <IconCourse />,

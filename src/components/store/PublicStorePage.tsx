@@ -8,6 +8,13 @@ import { API_PUBLIC_BASE } from "../../lib/api";
 type CheckoutJson = {
   discount_enabled?: boolean;
   discount_price?: number;
+  purchase_cta?: string;
+  custom_fields?: string[];
+};
+
+type ProductOptionsJson = {
+  collect_emails?: boolean;
+  custom_fields?: Array<string | { label?: string; id?: string }>;
 };
 
 export type PublicProduct = {
@@ -20,6 +27,8 @@ export type PublicProduct = {
   style: string;
   status?: string;
   checkout_json: CheckoutJson & Record<string, unknown>;
+  options_json?: ProductOptionsJson & Record<string, unknown>;
+  product_type?: string;
 };
 
 type PublicStorePayload = {
@@ -35,12 +44,26 @@ type BuyerProfile = {
   address: string | null;
 };
 
+type LeadFormState = {
+  name: string;
+  email: string;
+  answers: Record<string, string>;
+};
+
 function displayPrice(p: PublicProduct): number {
   const cj = p.checkout_json || {};
   if (cj.discount_enabled && Number(cj.discount_price) > 0) {
     return Number(cj.discount_price);
   }
   return Number(p.price_numeric) || 0;
+}
+
+function getProductCta(p: PublicProduct, fallback: string) {
+  const checkoutCta = String(p.checkout_json?.purchase_cta || "").trim();
+  if (checkoutCta) return checkoutCta;
+  const buttonText = String(p.button_text || "").trim();
+  if (buttonText) return buttonText;
+  return fallback;
 }
 
 function ProfileAvatar({ label }: { label: string }) {
@@ -71,6 +94,9 @@ export default function PublicStorePage({ username }: { username: string }) {
   const [buyerChecked, setBuyerChecked] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [toast, setToast] = useState("");
+  const [leadForms, setLeadForms] = useState<Record<string, LeadFormState>>({});
+  const [leadErrors, setLeadErrors] = useState<Record<string, string>>({});
+  const [leadSuccess, setLeadSuccess] = useState<Record<string, string>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -144,11 +170,7 @@ export default function PublicStorePage({ username }: { username: string }) {
       return;
     }
     const buyerPhone = String(buyer?.phone || "").trim();
-    if (!buyerPhone) {
-      setToast("Your buyer account is missing phone number. Please sign up again to enable WhatsApp delivery.");
-      window.setTimeout(() => setToast(""), 5000);
-      return;
-    }
+    const emailCandidate = String(buyer?.email || "").trim();
     setBusyId(productId);
     setToast("");
     try {
@@ -160,12 +182,21 @@ export default function PublicStorePage({ username }: { username: string }) {
         },
         body: JSON.stringify({
           product_id: productId,
-          buyer_whatsapp: buyerPhone,
+          ...(buyerPhone ? { buyer_whatsapp: buyerPhone } : {}),
           ...(buyer?.full_name ? { buyer_name: buyer.full_name } : {}),
+          ...(emailCandidate ? { buyer_email: emailCandidate } : {}),
         }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.message || "Purchase failed.");
+      if (!res.ok) {
+        const msg =
+          typeof json?.message === "string" && json.message.trim()
+            ? json.message.trim()
+            : typeof json?.error === "string" && json.error.trim()
+              ? json.error.trim()
+              : "Purchase failed.";
+        throw new Error(msg);
+      }
       const orderId = json?.order?.id as string | undefined;
       const deliveryToken = json?.token as string | undefined;
       if (orderId) {
@@ -180,6 +211,142 @@ export default function PublicStorePage({ username }: { username: string }) {
     } catch (e) {
       setToast(e instanceof Error ? e.message : "Purchase failed.");
       window.setTimeout(() => setToast(""), 4000);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  /** Sticker price (not discount-adjusted). Used so $0 guides from "Add product" match Collect Emails behavior. */
+  const stickerPrice = (p: PublicProduct) => Number(p.price_numeric) || 0;
+
+  const getCustomFields = (p: PublicProduct) => {
+    const fromOptions = Array.isArray(p.options_json?.custom_fields)
+      ? p.options_json.custom_fields
+          .map((field) => {
+            if (typeof field === "string") return field.trim();
+            if (field && typeof field === "object" && typeof field.label === "string") {
+              return field.label.trim();
+            }
+            return "";
+          })
+          .filter((x): x is string => Boolean(x))
+      : [];
+    if (fromOptions.length) return fromOptions;
+    const cf = p.checkout_json?.custom_fields;
+    if (!Array.isArray(cf)) return [];
+    return cf
+      .map((x) => (typeof x === "string" ? x.trim() : ""))
+      .filter((x): x is string => Boolean(x));
+  };
+
+  const isLeadCaptureProduct = (p: PublicProduct) => {
+    const opts = p.options_json;
+    if (opts?.collect_emails === false) return false;
+    if (Boolean(opts?.collect_emails)) return true;
+    if (String(p.product_type || "").toLowerCase() === "emails") return true;
+    // Free sticker-price product with configured questions (e.g. "free guide" from Add product) → same form as Collect Emails
+    if (stickerPrice(p) <= 0 && getCustomFields(p).length > 0) return true;
+    return false;
+  };
+
+  const getLeadForm = (productId: string, p: PublicProduct): LeadFormState => {
+    const existing = leadForms[productId];
+    if (existing) return existing;
+    const answers = Object.fromEntries(getCustomFields(p).map((field) => [field, ""]));
+    return { name: "", email: "", answers };
+  };
+
+  const setLeadFormField = (
+    productId: string,
+    p: PublicProduct,
+    key: "name" | "email",
+    value: string
+  ) => {
+    setLeadForms((prev) => {
+      const current = prev[productId] || getLeadForm(productId, p);
+      return {
+        ...prev,
+        [productId]: { ...current, [key]: value },
+      };
+    });
+    setLeadErrors((prev) => ({ ...prev, [productId]: "" }));
+    setLeadSuccess((prev) => ({ ...prev, [productId]: "" }));
+  };
+
+  const setLeadAnswer = (productId: string, p: PublicProduct, field: string, value: string) => {
+    setLeadForms((prev) => {
+      const current = prev[productId] || getLeadForm(productId, p);
+      return {
+        ...prev,
+        [productId]: {
+          ...current,
+          answers: { ...current.answers, [field]: value },
+        },
+      };
+    });
+    setLeadErrors((prev) => ({ ...prev, [productId]: "" }));
+    setLeadSuccess((prev) => ({ ...prev, [productId]: "" }));
+  };
+
+  const submitLead = async (p: PublicProduct) => {
+    const form = getLeadForm(p.id, p);
+    const customFields = getCustomFields(p);
+    const name = form.name.trim();
+    const email = form.email.trim();
+    const phoneFieldKey = customFields.find((field) => /whatsapp|phone|mobile/i.test(field));
+    const phoneValue = phoneFieldKey ? String(form.answers[phoneFieldKey] || "").trim() : "";
+    if (name.length < 2) {
+      setLeadErrors((prev) => ({ ...prev, [p.id]: "Please enter your name." }));
+      return;
+    }
+    if (!/^\S+@\S+\.\S+$/.test(email)) {
+      setLeadErrors((prev) => ({ ...prev, [p.id]: "Please enter a valid email address." }));
+      return;
+    }
+    for (const field of customFields) {
+      const value = String(form.answers[field] || "").trim();
+      if (!value) {
+        setLeadErrors((prev) => ({ ...prev, [p.id]: `Please fill "${field}".` }));
+        return;
+      }
+    }
+
+    setBusyId(p.id);
+    setLeadErrors((prev) => ({ ...prev, [p.id]: "" }));
+    setLeadSuccess((prev) => ({ ...prev, [p.id]: "" }));
+    try {
+      const res = await fetch(`${API_PUBLIC_BASE}/lead-submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          product_id: p.id,
+          buyer_name: name,
+          buyer_email: email,
+          ...(phoneValue ? { buyer_whatsapp: phoneValue } : {}),
+          answers: Object.fromEntries(
+            customFields.map((field) => [field, String(form.answers[field] || "").trim()])
+          ),
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.message || "Could not submit application.");
+      setLeadSuccess((prev) => ({
+        ...prev,
+        [p.id]: "Submitted successfully. Please check your email.",
+      }));
+      setLeadForms((prev) => ({
+        ...prev,
+        [p.id]: {
+          name: "",
+          email: "",
+          answers: Object.fromEntries(customFields.map((field) => [field, ""])),
+        },
+      }));
+    } catch (e) {
+      setLeadErrors((prev) => ({
+        ...prev,
+        [p.id]: e instanceof Error ? e.message : "Could not submit application.",
+      }));
     } finally {
       setBusyId(null);
     }
@@ -229,7 +396,7 @@ export default function PublicStorePage({ username }: { username: string }) {
                 Login required before purchase
               </p>
               <p className="mt-1 text-sm text-amber-800">
-                Sign in with buyer email/password, or create account with email, phone, name, and address.
+                Sign in with buyer email/password for paid checkout. Lead/application forms can be submitted directly.
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Link
@@ -267,6 +434,9 @@ export default function PublicStorePage({ username }: { username: string }) {
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
               {products.map((p) => {
                 const price = displayPrice(p);
+                const isLeadCapture = isLeadCaptureProduct(p);
+                const form = getLeadForm(p.id, p);
+                const customFields = getCustomFields(p);
                 return (
                   <article
                     key={p.id}
@@ -309,15 +479,63 @@ export default function PublicStorePage({ username }: { username: string }) {
                         </span>
                         Ready To Download
                       </p>
-                      <button
-                        type="button"
-                        disabled={busyId === p.id}
-                        onClick={() => void purchase(p.id)}
-                        className="w-full rounded-full py-3 text-[18px] font-bold text-white transition hover:opacity-95 disabled:opacity-60"
-                        style={{ backgroundColor: "#0a7a69" }}
-                      >
-                        {busyId === p.id ? "Processing payment..." : "Pay"}
-                      </button>
+                      {isLeadCapture ? (
+                        <>
+                          <input
+                            type="text"
+                            placeholder="Your name"
+                            value={form.name}
+                            onChange={(e) => setLeadFormField(p.id, p, "name", e.target.value)}
+                            className="mb-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-violet-400"
+                          />
+                          <input
+                            type="email"
+                            placeholder="Your email"
+                            value={form.email}
+                            onChange={(e) => setLeadFormField(p.id, p, "email", e.target.value)}
+                            className="mb-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-violet-400"
+                          />
+                          {customFields.map((field) => (
+                            <input
+                              key={field}
+                              type="text"
+                              placeholder={field}
+                              value={form.answers[field] || ""}
+                              onChange={(e) => setLeadAnswer(p.id, p, field, e.target.value)}
+                              className="mb-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-violet-400"
+                            />
+                          ))}
+                          {leadErrors[p.id] ? (
+                            <p className="mb-2 text-xs font-medium text-red-600">{leadErrors[p.id]}</p>
+                          ) : null}
+                          {leadSuccess[p.id] ? (
+                            <p className="mb-2 text-xs font-medium text-emerald-600">{leadSuccess[p.id]}</p>
+                          ) : null}
+                          <button
+                            type="button"
+                            disabled={busyId === p.id}
+                            onClick={() => void submitLead(p)}
+                            className="w-full rounded-full py-3 text-[18px] font-bold text-white transition hover:opacity-95 disabled:opacity-60"
+                            style={{ backgroundColor: "#0a7a69" }}
+                          >
+                            {busyId === p.id
+                              ? "Submitting..."
+                              : getProductCta(p, "Submit application")}
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={busyId === p.id}
+                          onClick={() => void purchase(p.id)}
+                          className="w-full rounded-full py-3 text-[18px] font-bold text-white transition hover:opacity-95 disabled:opacity-60"
+                          style={{ backgroundColor: "#0a7a69" }}
+                        >
+                          {busyId === p.id
+                            ? "Processing payment..."
+                            : getProductCta(p, "Pay")}
+                        </button>
+                      )}
                     </div>
                   </article>
                 );

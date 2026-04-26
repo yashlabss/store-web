@@ -176,6 +176,14 @@ type Props = {
   onSignOut: () => void;
 };
 
+type EmailFlowItem = {
+  id: string;
+  name: string;
+  trigger_type?: string;
+  is_active?: boolean;
+  config_json?: Record<string, unknown>;
+};
+
 const TITLE_MAX = 50;
 const SUB_MAX = 100;
 const BTN_MAX = 30;
@@ -590,10 +598,13 @@ export default function CollectEmailsClient({ displayName, handle, showName, onS
   const [emailFlowsOpen, setEmailFlowsOpen] = useState(true);
   const [confirmationOpen, setConfirmationOpen] = useState(true);
   const [emailFlowIds, setEmailFlowIds] = useState<string[]>([]);
+  const [availableFlows, setAvailableFlows] = useState<EmailFlowItem[]>([]);
+  const [flowsLoading, setFlowsLoading] = useState(false);
   const [confirmationSubject, setConfirmationSubject] = useState(DEFAULT_CONFIRMATION_SUBJECT);
   const [confirmationBody, setConfirmationBody] = useState(DEFAULT_CONFIRMATION_BODY);
   const [formErrors, setFormErrors] = useState<CollectEmailsFormErrors>({});
   const [productId, setProductId] = useState<string | null>(null);
+  const [listingStatus, setListingStatus] = useState<"draft" | "published">("draft");
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -611,6 +622,66 @@ export default function CollectEmailsClient({ displayName, handle, showName, onS
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+      if (!token) return;
+      setFlowsLoading(true);
+      try {
+        const res = await fetch(`${API_PRODUCTS_BASE}/email-flows`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          flows?: EmailFlowItem[];
+        };
+        if (!res.ok) return;
+        if (!cancelled) setAvailableFlows(Array.isArray(data.flows) ? data.flows : []);
+      } finally {
+        if (!cancelled) setFlowsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const addEmailFlow = async () => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+    if (!token) {
+      setSaveMsg("Please log in again.");
+      return;
+    }
+    const nextIndex = emailFlowIds.length + 1;
+    try {
+      const res = await fetch(`${API_PRODUCTS_BASE}/email-flows`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: `Email flow ${nextIndex}`,
+          trigger_type: "lead_capture_submitted",
+          is_active: true,
+          config_json: {
+            subject: "Thanks for your submission to {{product_title}}",
+            body: "Hi {{name}},\n\nThanks for your submission. We will contact you soon.",
+          },
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { flow?: EmailFlowItem; message?: string };
+      if (!res.ok || !data.flow?.id) {
+        throw new Error(data.message || "Could not create email flow.");
+      }
+      setAvailableFlows((prev) => [data.flow as EmailFlowItem, ...prev]);
+      setEmailFlowIds((ids) => [...ids, data.flow!.id]);
+    } catch (e) {
+      setSaveMsg(e instanceof Error ? e.message : "Could not create email flow.");
+    }
+  };
 
   const onPickThumbnail = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -855,7 +926,40 @@ export default function CollectEmailsClient({ displayName, handle, showName, onS
         : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
     }`;
 
-  const saveToApi = async (saveStatus: "draft" | "published"): Promise<boolean> => {
+  const buildPayload = (saveStatus: "draft" | "published", flowIds?: string[]) => {
+    const flows = flowIds ?? emailFlowIds;
+    return {
+      id: productId || undefined,
+      product_type: "emails",
+      status: saveStatus,
+      active_tab: activeTab === "product" ? "checkout" : activeTab,
+      style: "callout",
+      title: title.slice(0, TITLE_MAX),
+      subtitle: subtitle.slice(0, SUB_MAX),
+      button_text: buttonText.slice(0, BTN_MAX),
+      price_numeric: 9.99,
+      thumbnail_url: thumbnailDataUrl,
+      checkout_json: {
+        digital_delivery: delivery,
+        digital_file_name: uploadedFileName,
+        digital_redirect_url: redirectUrl,
+      },
+      options_json: {
+        collect_emails: true,
+        custom_fields: customFields,
+        confirmation_email: {
+          subject: confirmationSubject.slice(0, CONFIRMATION_SUBJECT_MAX),
+          body: confirmationBody.slice(0, CONFIRMATION_BODY_MAX),
+        },
+        email_flows: flows.map((id) => ({ id })),
+      },
+    };
+  };
+
+  const saveToApi = async (
+    saveStatus: "draft" | "published",
+    flowIds?: string[]
+  ): Promise<boolean> => {
     const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
     if (!token) {
       setSaveMsg("Please log in again.");
@@ -870,36 +974,15 @@ export default function CollectEmailsClient({ displayName, handle, showName, onS
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          id: productId || undefined,
-          status: saveStatus,
-          active_tab: activeTab === "product" ? "checkout" : activeTab,
-          style: "callout",
-          title: title.slice(0, TITLE_MAX),
-          subtitle: subtitle.slice(0, SUB_MAX),
-          button_text: buttonText.slice(0, BTN_MAX),
-          price_numeric: 9.99,
-          thumbnail_url: thumbnailDataUrl,
-          checkout_json: {
-            digital_delivery: delivery,
-            digital_file_name: uploadedFileName,
-            digital_redirect_url: redirectUrl,
-          },
-          options_json: {
-            collect_emails: true,
-            custom_fields: customFields,
-            confirmation_email: {
-              subject: confirmationSubject.slice(0, CONFIRMATION_SUBJECT_MAX),
-              body: confirmationBody.slice(0, CONFIRMATION_BODY_MAX),
-            },
-            email_flows: emailFlowIds.map((id) => ({ id })),
-          },
-        }),
+        body: JSON.stringify(buildPayload(saveStatus, flowIds)),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((data as { message?: string }).message || "Save failed.");
-      const p = (data as { product?: { id?: string } }).product;
+      const p = (data as { product?: { id?: string; status?: string } }).product;
       if (p?.id) setProductId(p.id);
+      if (p?.status === "published" || p?.status === "draft") {
+        setListingStatus(p.status === "published" ? "published" : "draft");
+      }
       return true;
     } catch (e) {
       setSaveMsg(e instanceof Error ? e.message : "Save failed.");
@@ -1308,13 +1391,7 @@ export default function CollectEmailsClient({ displayName, handle, showName, onS
                   </div>
                   <button
                     type="button"
-                    onClick={() => {
-                      const id =
-                        typeof crypto !== "undefined" && "randomUUID" in crypto
-                          ? crypto.randomUUID()
-                          : `flow-${Date.now()}`;
-                      setEmailFlowIds((ids) => [...ids, id]);
-                    }}
+                    onClick={() => void addEmailFlow()}
                     className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:opacity-95"
                     style={{ backgroundColor: PURPLE }}
                   >
@@ -1330,9 +1407,21 @@ export default function CollectEmailsClient({ displayName, handle, showName, onS
                         className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm"
                       >
                         <span className="font-medium text-slate-800">Email flow {i + 1}</span>
+                        <span className="ml-2 font-normal text-slate-400">
+                          {availableFlows.find((flow) => flow.id === fid)?.name || fid}
+                        </span>
                         <button
                           type="button"
-                          onClick={() => setEmailFlowIds((ids) => ids.filter((x) => x !== fid))}
+                          onClick={() => {
+                            const next = emailFlowIds.filter((x) => x !== fid);
+                            setEmailFlowIds(next);
+                            if (productId) {
+                              void saveToApi(
+                                listingStatus === "published" ? "published" : "draft",
+                                next
+                              );
+                            }
+                          }}
                           className="rounded-lg px-2 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50"
                         >
                           Remove
@@ -1340,6 +1429,9 @@ export default function CollectEmailsClient({ displayName, handle, showName, onS
                       </li>
                     ))}
                   </ul>
+                ) : null}
+                {flowsLoading ? (
+                  <p className="mt-2 text-xs text-slate-500">Loading existing flows...</p>
                 ) : null}
               </div>
             ) : null}
@@ -1546,11 +1638,12 @@ export default function CollectEmailsClient({ displayName, handle, showName, onS
           {activeTab === "product" && (
             <button
               type="button"
-              onClick={goToOptionsTab}
-              className="bg-blue-600 px-12 py-3 text-sm font-bold text-white transition hover:bg-blue-400"
+              disabled={saving}
+              onClick={() => void handlePublish()}
+              className="bg-blue-600 px-12 py-3 text-sm font-bold text-white transition hover:bg-blue-400 disabled:opacity-50"
               style={{ borderRadius: "8px" }}
             >
-              Next
+              Publish
             </button>
           )}
           {activeTab === "options" && (

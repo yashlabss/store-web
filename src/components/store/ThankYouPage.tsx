@@ -33,13 +33,14 @@ type OrderPayload = {
   };
 };
 
-function prettyStatus(value: string | undefined) {
-  const status = String(value || "not_requested").toLowerCase();
-  if (status === "sent") return "Sent";
-  if (status === "failed") return "Failed";
-  if (status === "queued") return "Queued";
-  if (status === "not_configured") return "Not configured";
-  return "Not requested";
+function mailSentSimple(status?: string) {
+  return String(status || "").toLowerCase() === "sent";
+}
+
+/** Treat API success / in-flight WhatsApp as “sent” for a simple buyer-facing line. */
+function whatsAppSentSimple(status?: string) {
+  const s = String(status || "").toLowerCase();
+  return s === "sent" || s === "accepted" || s === "pending";
 }
 
 export default function ThankYouPage() {
@@ -86,10 +87,19 @@ export default function ThankYouPage() {
           }
         );
         const json = await res.json().catch(() => ({}));
-        if (res.status === 401 || res.status === 403) {
+        if (res.status === 401) {
           if (typeof window !== "undefined") localStorage.removeItem("buyer_auth_token");
           const redirectTo = `${window.location.pathname}${window.location.search}`;
           router.replace(`/buyer/login?redirectTo=${encodeURIComponent(redirectTo)}`);
+          return;
+        }
+        if (res.status === 403) {
+          if (!cancelled) {
+            setError(
+              json.message ||
+                "This order was placed with a different buyer email. Log in with the account you used at checkout."
+            );
+          }
           return;
         }
         if (!res.ok) throw new Error(json.message || "Could not load order.");
@@ -125,6 +135,8 @@ export default function ThankYouPage() {
   }
 
   const { order, delivery, delivery_status: status } = data;
+  const showMailLine = mailSentSimple(status?.email?.status);
+  const showWhatsAppLine = whatsAppSentSimple(status?.whatsapp?.status);
   const amount = Number(order.amount) || 0;
   const showRedirect =
     delivery.type === "redirect" && delivery.redirect_url && /^https?:\/\//i.test(delivery.redirect_url);
@@ -245,17 +257,15 @@ export default function ThankYouPage() {
               Receipt and delivery are sent to your email and WhatsApp when configured by the seller.
             </p>
           </div>
-          <div className="mt-5 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Delivery Status</p>
-            <p className="mt-2 text-sm text-slate-700">
-              Email: <span className="font-semibold text-slate-900">{prettyStatus(status?.email?.status)}</span>
-              {status?.email?.provider ? ` (${status.email.provider})` : ""}
-            </p>
-            <p className="mt-1 text-sm text-slate-700">
-              WhatsApp: <span className="font-semibold text-slate-900">{prettyStatus(status?.whatsapp?.status)}</span>
-              {status?.whatsapp?.provider ? ` (${status.whatsapp.provider})` : ""}
-            </p>
-          </div>
+          {showMailLine || showWhatsAppLine ? (
+            <div className="mt-5 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Delivery status</p>
+              <ul className="mt-2 space-y-1 text-sm text-slate-800">
+                {showMailLine ? <li>Sent on mail.</li> : null}
+                {showWhatsAppLine ? <li>Sent on WhatsApp.</li> : null}
+              </ul>
+            </div>
+          ) : null}
 
           <Link
             href={username ? `/${encodeURIComponent(username)}` : "/"}
