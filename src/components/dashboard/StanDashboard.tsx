@@ -38,6 +38,8 @@ type ProductRow = {
   updated_at: string;
 };
 
+const DELETED_PRODUCT_IDS_KEY = "stan_deleted_product_ids";
+
 function isLandingProduct(p: ProductRow): boolean {
   const anyP = p as ProductRow & {
     data?: { source_product_id?: string };
@@ -55,6 +57,87 @@ function isLandingProduct(p: ProductRow): boolean {
   return /\blanding page\b/i.test(anyP.title || "");
 }
 
+function isDeletedProduct(p: ProductRow): boolean {
+  const opts = (p.options_json || {}) as { __deleted?: boolean | string };
+  return opts.__deleted === true || String(opts.__deleted).toLowerCase() === "true";
+}
+
+function normalizeLandingRows(payload: unknown): ProductRow[] {
+  const data = payload as
+    | { landing_pages?: unknown; landingPages?: unknown; pages?: unknown; products?: unknown }
+    | unknown[];
+  const rawList = Array.isArray(data)
+    ? data
+    : Array.isArray(data?.landing_pages)
+      ? data.landing_pages
+      : Array.isArray(data?.landingPages)
+        ? data.landingPages
+        : Array.isArray(data?.pages)
+          ? data.pages
+          : Array.isArray(data?.products)
+            ? data.products
+            : [];
+  return rawList
+    .map((raw) => {
+      const item = raw as Record<string, unknown>;
+      const id = typeof item.id === "string" ? item.id : "";
+      if (!id) return null;
+      return {
+        id,
+        status: typeof item.status === "string" ? item.status : "draft",
+        location: "landing",
+        title: typeof item.title === "string" ? item.title : "Untitled Landing Page",
+        subtitle: typeof item.subtitle === "string" ? item.subtitle : "",
+        button_text: typeof item.button_text === "string" ? item.button_text : "View",
+        price_numeric: Number(item.price_numeric) || 0,
+        thumbnail_url:
+          typeof item.thumbnail_url === "string"
+            ? item.thumbnail_url
+            : typeof item.image_url === "string"
+              ? item.image_url
+              : null,
+        checkout_json:
+          item.checkout_json && typeof item.checkout_json === "object"
+            ? (item.checkout_json as Record<string, unknown>)
+            : {},
+        options_json:
+          item.options_json && typeof item.options_json === "object"
+            ? ({ ...(item.options_json as Record<string, unknown>), location: "landing" } as Record<string, unknown>)
+            : { location: "landing" },
+        active_tab: typeof item.active_tab === "string" ? item.active_tab : "thumbnail",
+        style: typeof item.style === "string" ? item.style : "callout",
+        updated_at:
+          typeof item.updated_at === "string" ? item.updated_at : new Date().toISOString(),
+      } satisfies ProductRow;
+    })
+    .filter((row): row is ProductRow => row !== null);
+}
+
+function getProductEditHref(p: ProductRow): string {
+  const options = (p.options_json || {}) as {
+    collect_emails?: boolean;
+    custom_fields?: unknown;
+  };
+  const hasCustomFieldsArray = Array.isArray(options.custom_fields);
+  const looksLikeCollectEmailsButton = /submit\s*&?\s*download/i.test(p.button_text || "");
+  const looksLikeCollectEmailsSubtitle = /join my email list|never miss an update/i.test(p.subtitle || "");
+  if (options.collect_emails === true || hasCustomFieldsArray || looksLikeCollectEmailsButton || looksLikeCollectEmailsSubtitle) {
+    return `/dashboard/store/product/emails?id=${encodeURIComponent(p.id)}`;
+  }
+  return `/dashboard/store/product/new?id=${encodeURIComponent(p.id)}`;
+}
+
+function readDeletedProductIds(): string[] {
+  try {
+    if (typeof window === "undefined") return [];
+    const raw = localStorage.getItem(DELETED_PRODUCT_IDS_KEY);
+    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 function listDisplayPrice(p: ProductRow): number {
   const cj = (p.checkout_json || {}) as {
     discount_enabled?: boolean;
@@ -64,6 +147,28 @@ function listDisplayPrice(p: ProductRow): number {
     return Number(cj.discount_price);
   }
   return Number(p.price_numeric) || 0;
+}
+
+function firstImageFromDescriptionHtml(value: string): string | null {
+  if (!value) return null;
+  const match = value.match(/<img[^>]*src=["']([^"']+)["']/i);
+  if (!match?.[1]) return null;
+  return match[1].trim() || null;
+}
+
+function getProductPreviewImageUrl(p: ProductRow): string | null {
+  if (p.thumbnail_url?.trim()) return p.thumbnail_url;
+  const checkout = (p.checkout_json || {}) as {
+    checkout_image_url?: string | null;
+    description_body?: string;
+  };
+  if (typeof checkout.checkout_image_url === "string" && checkout.checkout_image_url.trim()) {
+    return checkout.checkout_image_url.trim();
+  }
+  if (typeof checkout.description_body === "string") {
+    return firstImageFromDescriptionHtml(checkout.description_body);
+  }
+  return null;
 }
 
 function AvatarLarge({ label }: { label: string }) {
@@ -80,7 +185,7 @@ function AvatarLarge({ label }: { label: string }) {
 }
 
 function PhonePreview({ name, products }: { name: string; products: ProductRow[] | null }) {
-  const previewProducts = (products || []).slice(0, 3);
+  const previewProducts = products || [];
   return (
     <div className="flex w-full flex-col items-center justify-center">
       <div
@@ -95,7 +200,7 @@ function PhonePreview({ name, products }: { name: string; products: ProductRow[]
             {name}
           </p>
         </div>
-        <div className="mt-5 space-y-2.5">
+        <div className="mt-5 max-h-[min(260px,36vh)] space-y-2.5 overflow-y-auto pr-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {previewProducts.length === 0 ? (
             <div className="rounded-xl border border-dashed border-[#d8c7ab] bg-[#fbf7f0] px-3 py-4 text-center text-xs text-slate-500">
               Added products will appear here
@@ -104,9 +209,9 @@ function PhonePreview({ name, products }: { name: string; products: ProductRow[]
             previewProducts.map((p) => (
               <div key={p.id} className="flex items-center gap-2.5 rounded-xl border border-[#e7dcc9] bg-white px-2.5 py-2">
                 <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-[#f7f1e6]">
-                  {p.thumbnail_url ? (
+                  {getProductPreviewImageUrl(p) ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={p.thumbnail_url} alt="" className="h-full w-full object-cover" />
+                    <img src={getProductPreviewImageUrl(p) || ""} alt="" className="h-full w-full object-cover" />
                   ) : null}
                 </div>
                 <div className="min-w-0 flex-1">
@@ -174,13 +279,24 @@ function ProductListRow({
 }) {
   const price = listDisplayPrice(p);
   const title = p.title?.trim() || "Untitled product";
+  const previewImageUrl = getProductPreviewImageUrl(p);
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [busyAction, setBusyAction] = useState<null | string>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const editHref = `/dashboard/store/product/new?id=${encodeURIComponent(p.id)}`;
+  const editHref = getProductEditHref(p);
   const publicBase = publicStoreUrl(handle);
   const publicUrl = `${publicBase}${publicBase.includes("?") ? "&" : "?"}product=${encodeURIComponent(p.id)}`;
+  const checkout = (p.checkout_json || {}) as {
+    digital_file_data_url?: string | null;
+    digital_file_name?: string | null;
+  };
+  const options = (p.options_json || {}) as { attached_file_name?: string | null };
+  const digitalFileDataUrl = typeof checkout.digital_file_data_url === "string" ? checkout.digital_file_data_url : "";
+  const digitalFileName =
+    (typeof checkout.digital_file_name === "string" && checkout.digital_file_name.trim()) ||
+    (typeof options.attached_file_name === "string" && options.attached_file_name.trim()) ||
+    `${title}.bin`;
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -203,6 +319,26 @@ function ProductListRow({
     }
   };
 
+  const handleDownloadProduct = async () => {
+    if (!digitalFileDataUrl) {
+      onError("No downloadable file found for this product.");
+      return;
+    }
+    try {
+      const link = document.createElement("a");
+      link.href = digitalFileDataUrl;
+      link.download = digitalFileName;
+      link.rel = "noopener noreferrer";
+      link.style.display = "none";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      onNotify("Download started.");
+    } catch {
+      onError("Could not start download. Please try again.");
+    }
+  };
+
   return (
     <li>
       <div className="flex min-h-[80px] items-center gap-3 rounded-2xl border border-[#e7dcc9] bg-white px-3 py-3 shadow-sm transition-[border-color,box-shadow] hover:border-[#d8c7ab] hover:shadow-md sm:gap-4 sm:px-4">
@@ -217,10 +353,10 @@ function ProductListRow({
           </svg>
         </span>
         <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-[#f7f1e6]">
-          {p.thumbnail_url ? (
+          {previewImageUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={p.thumbnail_url}
+              src={previewImageUrl}
               alt=""
               width={56}
               height={56}
@@ -245,11 +381,17 @@ function ProductListRow({
             ${price.toFixed(2)}
           </p>
         </div>
-        <span className="flex shrink-0 text-[#b08d57]" aria-hidden title="Digital product">
+        <button
+          type="button"
+          onClick={() => void handleDownloadProduct()}
+          className="flex shrink-0 text-[#b08d57] transition hover:text-[#6c5a3d]"
+          title="Download product file"
+          aria-label="Download product file"
+        >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />
           </svg>
-        </span>
+        </button>
         {p.status === "draft" ? (
           <span className="inline-flex min-w-[3.25rem] shrink-0 justify-center rounded-full bg-[#f7f1e6] px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-[#6c5a3d]">
             Draft
@@ -364,12 +506,26 @@ export default function StanDashboard({ displayName, handle, showName, onSignOut
   const searchParams = useSearchParams();
   const activeTab = searchParams.get("tab") === "landing" ? "landing" : "store";
   const [products, setProducts] = useState<ProductRow[] | null>(null);
+  const [deletedProductIds, setDeletedProductIds] = useState<string[]>(() => readDeletedProductIds());
   const [listError, setListError] = useState("");
   const [actionMsg, setActionMsg] = useState("");
   const visibleProducts =
     products == null
       ? null
       : products.filter((p) => (activeTab === "landing" ? isLandingProduct(p) : !isLandingProduct(p)));
+
+  const persistDeletedProductId = useCallback((id: string) => {
+    setDeletedProductIds((prev) => {
+      if (prev.includes(id)) return prev;
+      const next = [...prev, id];
+      try {
+        localStorage.setItem(DELETED_PRODUCT_IDS_KEY, JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
 
   const loadProducts = useCallback(async () => {
     const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
@@ -386,7 +542,23 @@ export default function StanDashboard({ displayName, handle, showName, onSignOut
       if (!res.ok) {
         throw new Error((data as { message?: string }).message || "Could not load products.");
       }
-      setProducts(Array.isArray(data.products) ? data.products : []);
+      const rows = Array.isArray(data.products) ? (data.products as ProductRow[]) : [];
+      let landingRows: ProductRow[] = [];
+      try {
+        const landingRes = await fetch("/api/landing-pages", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (landingRes.ok) {
+          const landingData = await landingRes.json().catch(() => ({}));
+          landingRows = normalizeLandingRows(landingData);
+        }
+      } catch {
+        /* landing pages API is optional; ignore failures */
+      }
+      const mergedRows = [...rows, ...landingRows];
+      const dedupedRows = Array.from(new Map(mergedRows.map((row) => [row.id, row])).values());
+      const hiddenIds = new Set(readDeletedProductIds());
+      setProducts(dedupedRows.filter((p) => !isDeletedProduct(p) && !hiddenIds.has(p.id)));
     } catch (e) {
       setListError(networkErrorMessage(e));
       setProducts([]);
@@ -528,6 +700,9 @@ export default function StanDashboard({ displayName, handle, showName, onSignOut
 
   const deleteProduct = useCallback(
     async (id: string) => {
+      // Hide immediately so deleted products never pop back into the list.
+      persistDeletedProductId(id);
+      setProducts((prev) => (prev ? prev.filter((p) => p.id !== id) : prev));
       try {
         const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
         await runProductAction(
@@ -584,13 +759,12 @@ export default function StanDashboard({ displayName, handle, showName, onSignOut
               }),
             "Product deleted."
           );
-          setProducts((prev) => (prev ? prev.filter((p) => p.id !== id) : prev));
         } catch (fallbackErr) {
-          setListError(networkErrorMessage(fallbackErr));
+          setListError(`${networkErrorMessage(fallbackErr)} Product is hidden locally as deleted.`);
         }
       }
     },
-    [runProductAction]
+    [persistDeletedProductId, runProductAction]
   );
 
   const makeLandingPage = useCallback(async (id: string) => {

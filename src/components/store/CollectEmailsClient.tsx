@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import DashboardShell, { PURPLE } from "../dashboard/DashboardShell";
 import {
   IconChevronLeft,
@@ -576,6 +576,7 @@ function LivePreview({
 
 export default function CollectEmailsClient({ displayName, handle, showName, onSignOut }: Props) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<TabKey>("thumbnail");
   const [title, setTitle] = useState("Get My FREE Guide Now!");
   const [subtitle, setSubtitle] = useState("Join my email list and never miss an update from me!");
@@ -611,6 +612,83 @@ export default function CollectEmailsClient({ displayName, handle, showName, onS
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
+  useEffect(() => {
+    const id = searchParams.get("id");
+    const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+    if (!id || !token) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_PRODUCTS_BASE}/${id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !(data as { product?: Record<string, unknown> }).product) {
+          throw new Error((data as { message?: string }).message || "Could not load product.");
+        }
+        if (cancelled) return;
+        const p = (data as { product: Record<string, unknown> }).product;
+        setProductId(typeof p.id === "string" ? p.id : null);
+        setTitle(typeof p.title === "string" ? p.title : "");
+        setSubtitle(typeof p.subtitle === "string" ? p.subtitle : "");
+        setButtonText(typeof p.button_text === "string" ? p.button_text : "SUBMIT & DOWNLOAD");
+        setThumbnailDataUrl(typeof p.thumbnail_url === "string" ? p.thumbnail_url : null);
+        const cj = (p.checkout_json || {}) as {
+          digital_delivery?: "upload" | "redirect";
+          digital_file_name?: string;
+          digital_redirect_url?: string;
+        };
+        if (cj.digital_delivery === "upload" || cj.digital_delivery === "redirect") {
+          setDelivery(cj.digital_delivery);
+        }
+        setUploadedFileName(typeof cj.digital_file_name === "string" ? cj.digital_file_name : null);
+        setRedirectUrl(typeof cj.digital_redirect_url === "string" ? cj.digital_redirect_url : "");
+        const oj = (p.options_json || {}) as {
+          custom_fields?: CustomField[];
+          confirmation_email?: { subject?: string; body?: string };
+          email_flows?: { id?: string }[];
+        };
+        if (Array.isArray(oj.custom_fields)) {
+          const hydrated = oj.custom_fields
+            .filter((f) => f && typeof f === "object")
+            .map((f) => ({
+              id:
+                typeof f.id === "string" && f.id
+                  ? f.id
+                  : typeof crypto !== "undefined" && "randomUUID" in crypto
+                    ? crypto.randomUUID()
+                    : `field-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              type: (f.type as FieldType) || "text",
+              label: typeof f.label === "string" ? f.label : "",
+              required: Boolean(f.required),
+              options: Array.isArray(f.options)
+                ? f.options.map((x) => String(x))
+                : undefined,
+            }));
+          setCustomFields(hydrated);
+        } else {
+          setCustomFields([]);
+        }
+        const ce = oj.confirmation_email;
+        setConfirmationSubject(typeof ce?.subject === "string" ? ce.subject : DEFAULT_CONFIRMATION_SUBJECT);
+        setConfirmationBody(typeof ce?.body === "string" ? ce.body : DEFAULT_CONFIRMATION_BODY);
+        setEmailFlowIds(
+          Array.isArray(oj.email_flows)
+            ? oj.email_flows.map((x) => String(x?.id || "")).filter(Boolean)
+            : []
+        );
+        const active = typeof p.active_tab === "string" ? p.active_tab : "thumbnail";
+        setActiveTab(active === "checkout" ? "product" : active === "options" ? "options" : "thumbnail");
+        setFormErrors({});
+      } catch (e) {
+        if (!cancelled) setSaveMsg(e instanceof Error ? e.message : "Could not load product.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams]);
 
   const onPickThumbnail = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1546,11 +1624,12 @@ export default function CollectEmailsClient({ displayName, handle, showName, onS
           {activeTab === "product" && (
             <button
               type="button"
-              onClick={goToOptionsTab}
-              className="bg-blue-600 px-12 py-3 text-sm font-bold text-white transition hover:bg-blue-400"
+              disabled={saving}
+              onClick={() => void handlePublish()}
+              className="bg-blue-600 px-12 py-3 text-sm font-bold text-white transition hover:bg-blue-400 disabled:opacity-50"
               style={{ borderRadius: "8px" }}
             >
-              Next
+              Publish
             </button>
           )}
           {activeTab === "options" && (

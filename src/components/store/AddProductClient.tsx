@@ -19,11 +19,32 @@ import { DISPLAY_STORE_DOMAIN, publicStoreUrl } from "../../lib/publicStorePath"
 const TITLE_MAX = 50;
 const SUB_MAX = 100;
 const BTN_MAX = 30;
-const DESC_MAX = 8000;
+const DESC_MAX = 2000000;
 const BOTTOM_TITLE_MAX = 80;
 const PURCHASE_CTA_MAX = 30;
 const CONFIRMATION_SUBJECT_MAX = 200;
 const CONFIRMATION_BODY_MAX = 8000;
+const CHECKOUT_FIELD_CHOICES = [
+  { label: "Phone", value: "Phone Number", icon: "📞" },
+  { label: "Text", value: "Text", icon: "≡" },
+  { label: "Multiple choice", value: "Multiple choice", icon: "◉" },
+  { label: "Dropdown", value: "Dropdown", icon: "◌" },
+  { label: "Checkboxes", value: "Checkboxes", icon: "☑" },
+] as const;
+
+type CheckoutFieldType = "phone" | "text" | "multiple_choice" | "dropdown" | "checkboxes";
+type CheckoutCustomFieldCard = {
+  id: string;
+  type: CheckoutFieldType;
+  label: string;
+  required: boolean;
+  options?: string[];
+};
+type ReminderTiming = {
+  id: string;
+  amount: string;
+  unit: "minute(s) before" | "hour(s) before" | "day(s) before";
+};
 
 const DEFAULT_CONFIRMATION_SUBJECT =
   "Your order from @`My Username` is here!";
@@ -33,6 +54,18 @@ Thank you for ordering \`Product Name\`! Here is your order:
 \`Product File(s)\`
 
 - @\`My Username\``;
+const DEFAULT_REMINDER_SUBJECT = "Reminder: `Product Name` with @`My Username` on `Event Date`";
+const DEFAULT_REMINDER_BODY = `Hi \`Invitee Name\`!
+
+This is a friendly reminder that your \`Product Name\` with @\`My Username\` is coming up at \`Event Time\` on \`Event Date\`.
+
+Meeting Location: \`Meeting Link\`
+
+- @\`My Username\``;
+const DEFAULT_REMINDER_TIMINGS: ReminderTiming[] = [
+  { id: "r-1h", amount: "1", unit: "hour(s) before" },
+  { id: "r-24h", amount: "24", unit: "hour(s) before" },
+];
 
 const LS_KEY = "yash-product-draft-v2";
 
@@ -41,12 +74,19 @@ const TOAST_THEN_NAV_MS = 2000;
 
 function buildDefaultDescriptionBody(subtitleLine: string) {
   const sub = subtitleLine.trim();
-  return `${sub ? `${sub}\n\n` : ""}This [Template/eBook/Course] will teach you everything you need to achieve your goals.
+  return `${sub ? `${sub}\n\n` : ""}Inside this [Template/eBook/Course], you'll get practical steps you can apply immediately.
 
-This guide is for you if you're looking to
-- Achieve your Dream
-- Find Meaning in Your Work
-- Be Happy`;
+What you'll learn:
+- A clear step-by-step framework to get results faster
+- The exact process I use (without confusion or guesswork)
+- Practical examples you can copy and customize
+
+This is perfect for you if you want to:
+- Save time and avoid common mistakes
+- Build consistency and confidence
+- Reach your next goal with a proven system
+
+Get started now and take the next step today.`;
 }
 
 function getPlainTextFromHtml(value: string): string {
@@ -65,8 +105,79 @@ function getFirstImageFromHtml(value: string): string | null {
   const el = document.createElement("div");
   el.innerHTML = value;
   const firstImg = el.querySelector("img");
-  const src = firstImg?.getAttribute("src")?.trim();
-  return src || null;
+  const rawSrc = firstImg?.getAttribute("src")?.trim();
+  if (!rawSrc) return null;
+  const normalizedSrc = /^data:image\//i.test(rawSrc) ? rawSrc.replace(/\s+/g, "") : rawSrc;
+  return normalizedSrc || null;
+}
+
+function normalizeDescriptionMarkup(value: string): string {
+  if (!value) return value;
+  const trimmed = value.trim();
+  if (!trimmed) return value;
+  if (typeof window === "undefined") return value;
+  if (/<(img|iframe|video|a)\b[^>]*>/i.test(trimmed)) return value;
+  let decoded = trimmed;
+  if (trimmed.includes("&lt;") && trimmed.includes("&gt;")) {
+    const tx = document.createElement("textarea");
+    tx.innerHTML = trimmed;
+    decoded = tx.value;
+  }
+  if (/<(img|iframe|video|a)\b[^>]*>/i.test(decoded)) {
+    const container = document.createElement("div");
+    container.innerHTML = decoded;
+    const imgs = container.querySelectorAll("img");
+    imgs.forEach((img) => {
+      const src = img.getAttribute("src");
+      if (!src) return;
+      if (/^data:image\//i.test(src)) {
+        img.setAttribute("src", src.replace(/\s+/g, ""));
+      }
+      if (!img.getAttribute("alt")) {
+        img.setAttribute("alt", "Description media");
+      }
+    });
+    return container.innerHTML;
+  }
+
+  // Repair legacy broken plain-text image snippets like:
+  // "<img\nsrc='data:image/png;base64,...'" (possibly with long wrapped base64 text)
+  const rawImgLike = decoded.includes("<img") ? decoded : trimmed;
+  const srcMatch = rawImgLike.match(/src\s*=\s*['"]([^'"]+)['"]/i);
+  if (srcMatch?.[1] && /^data:image\//i.test(srcMatch[1])) {
+    const safeSrc = srcMatch[1].replace(/\s+/g, "").replace(/"/g, "&quot;");
+    return `<p><img src="${safeSrc}" alt="Description media" /></p>`;
+  }
+  const dataUriMatch = rawImgLike.match(/data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=\r\n]+/i);
+  if (dataUriMatch?.[0]) {
+    const safeSrc = dataUriMatch[0].replace(/\s+/g, "").replace(/"/g, "&quot;");
+    return `<p><img src="${safeSrc}" alt="Description media" /></p>`;
+  }
+  return value;
+}
+
+function sanitizeDescriptionForEditor(value: string): string {
+  const normalized = normalizeDescriptionMarkup(value);
+  if (typeof window === "undefined") return normalized;
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = normalized;
+  wrapper.querySelectorAll("img").forEach((img) => {
+    const src = (img.getAttribute("src") || "").trim();
+    const cleanSrc = /^data:image\//i.test(src) ? src.replace(/\s+/g, "") : src;
+    const isValid =
+      (cleanSrc.startsWith("http://") || cleanSrc.startsWith("https://") || cleanSrc.startsWith("data:image/")) &&
+      cleanSrc.length > 80;
+    if (!isValid) {
+      img.remove();
+      return;
+    }
+    img.setAttribute("src", cleanSrc);
+    if (!img.getAttribute("alt")) img.setAttribute("alt", "Description media");
+  });
+  if (!wrapper.innerHTML.trim()) return "<p><br></p>";
+  const hasEditableTail = /<(p|div|br|li|h[1-6])\b/i.test(wrapper.innerHTML);
+  if (!hasEditableTail) wrapper.innerHTML = `${wrapper.innerHTML}<p><br></p>`;
+  return wrapper.innerHTML;
 }
 
 function getNewReview(): ReviewItem {
@@ -360,9 +471,16 @@ function validateMembershipCheckout(
   }
   if (cancelSubscriptionAfterEnabled) {
     const validCancelAfter = [
-      "After 3 payments",
-      "After 6 payments",
-      "After 12 payments",
+      "3 months",
+      "4 months",
+      "5 months",
+      "6 months",
+      "7 months",
+      "8 months",
+      "9 months",
+      "10 months",
+      "11 months",
+      "12 months",
     ];
     if (!validCancelAfter.includes(cancelSubscriptionAfter)) {
       e.membershipCancelAfter =
@@ -627,7 +745,7 @@ function DescriptionPreview({ text }: { text: string }) {
   if (looksLikeHtml) {
     return (
       <div
-        className="mt-3 space-y-2 text-left text-[13px] leading-relaxed text-slate-700 [&_h1]:text-lg [&_h1]:font-bold [&_h2]:text-base [&_h2]:font-bold [&_h3]:text-[15px] [&_h3]:font-bold [&_li]:ml-4 [&_li]:list-disc [&_p]:mb-2 [&_img]:my-2 [&_img]:w-full [&_img]:rounded-xl [&_video]:my-2 [&_video]:w-full [&_video]:rounded-xl [&_iframe]:my-2 [&_iframe]:w-full [&_iframe]:min-h-[180px] [&_iframe]:rounded-xl"
+        className="mt-3 space-y-2 text-left text-[13px] leading-relaxed text-slate-700 [&_h1]:text-lg [&_h1]:font-bold [&_h2]:text-base [&_h2]:font-bold [&_h3]:text-[15px] [&_h3]:font-bold [&_li]:ml-4 [&_li]:list-disc [&_p]:mb-2 [&_img]:my-4 [&_img]:block [&_img]:w-full [&_img]:max-h-[340px] [&_img]:rounded-xl [&_img]:object-contain [&_img]:bg-slate-50 [&_video]:my-4 [&_video]:mx-auto [&_video]:block [&_video]:w-full [&_video]:rounded-xl [&_iframe]:my-4 [&_iframe]:mx-auto [&_iframe]:block [&_iframe]:w-full [&_iframe]:min-h-[220px] [&_iframe]:rounded-xl"
         // Note: content is authored by the user in this local editor.
         dangerouslySetInnerHTML={{ __html: trimmed }}
       />
@@ -686,7 +804,7 @@ function CheckoutMobilePreview({
   reviews: ReviewItem[];
 }) {
   const descriptionImageUrl = getFirstImageFromHtml(descriptionBody);
-  const previewHeroUrl = descriptionImageUrl || heroUrl;
+  const previewHeroUrl = heroUrl || descriptionImageUrl;
 
   return (
     <div className="mx-auto w-full max-w-[min(20rem,100%)]">
@@ -844,9 +962,14 @@ export default function AddProductClient({
   const [orderBumpOpen, setOrderBumpOpen] = useState(false);
   const [affiliateShareOpen, setAffiliateShareOpen] = useState(false);
   const [confirmationOpen, setConfirmationOpen] = useState(false);
+  const [reminderOpen, setReminderOpen] = useState(false);
+  const [reminderEnabled, setReminderEnabled] = useState(true);
   const [emailFlowIds, setEmailFlowIds] = useState<string[]>([]);
   const [confirmationSubject, setConfirmationSubject] = useState(DEFAULT_CONFIRMATION_SUBJECT);
   const [confirmationBody, setConfirmationBody] = useState(DEFAULT_CONFIRMATION_BODY);
+  const [reminderSubject, setReminderSubject] = useState(DEFAULT_REMINDER_SUBJECT);
+  const [reminderBody, setReminderBody] = useState(DEFAULT_REMINDER_BODY);
+  const [reminderTimings, setReminderTimings] = useState<ReminderTiming[]>(DEFAULT_REMINDER_TIMINGS);
   const confirmationBodyRef = useRef<HTMLTextAreaElement>(null);
   const confirmationSubjectRef = useRef<HTMLInputElement>(null);
   const descriptionBodyRef = useRef<HTMLDivElement>(null);
@@ -854,7 +977,13 @@ export default function AddProductClient({
   const descriptionVideoFileRef = useRef<HTMLInputElement>(null);
   const descriptionSelectionRef = useRef<Range | null>(null);
 
-  const [descriptionBody, setDescriptionBody] = useState("");
+  const [descriptionBody, setDescriptionBody] = useState(() =>
+    buildDefaultDescriptionBody("A 2-line course summary to close the sale. What will they learn?")
+  );
+  const [previewDescriptionBody, setPreviewDescriptionBody] = useState(() =>
+    buildDefaultDescriptionBody("A 2-line course summary to close the sale. What will they learn?")
+  );
+  const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [descriptionVideoModalOpen, setDescriptionVideoModalOpen] = useState(false);
   const [descriptionVideoUrl, setDescriptionVideoUrl] = useState("");
   const [descriptionLinkModalOpen, setDescriptionLinkModalOpen] = useState(false);
@@ -878,6 +1007,8 @@ export default function AddProductClient({
   const [lessonDescription, setLessonDescription] = useState(
     "Share what your students will learn in this lesson, then list out the key takeaways they can expect:\n\n- Key takeaway 1\n- Key takeaway 2\n- Key takeaway 3\n\nWrap things up by including an overview of any supporting materials you've uploaded, or share any closing thoughts/exercises you'd like your students to leave with before moving on to the next lesson."
   );
+  const [courseBuilderVideoName, setCourseBuilderVideoName] = useState<string | null>(null);
+  const [courseBuilderVideoUrl, setCourseBuilderVideoUrl] = useState<string | null>(null);
   const [courseModules, setCourseModules] = useState<string[]>([
     "Module 2: Topic 1",
     "Module 3: Topic 2",
@@ -887,6 +1018,9 @@ export default function AddProductClient({
   const [digitalFileName, setDigitalFileName] = useState<string | null>(null);
   const [digitalFileDataUrl, setDigitalFileDataUrl] = useState<string | null>(null);
   const [customCheckoutFields, setCustomCheckoutFields] = useState<string[]>([]);
+  const [customCheckoutFieldCards, setCustomCheckoutFieldCards] = useState<CheckoutCustomFieldCard[]>([]);
+  const [checkoutFieldDropdownOpen, setCheckoutFieldDropdownOpen] = useState(false);
+  const checkoutFieldDropdownRef = useRef<HTMLDivElement>(null);
 
   /** Saved as `thumbnail_url` — My Store listing & thumbnail-tab card. */
   const [thumbnailDataUrl, setThumbnailDataUrl] = useState<string | null>(null);
@@ -900,6 +1034,7 @@ export default function AddProductClient({
   const thumbnailFileRef = useRef<HTMLInputElement>(null);
   const checkoutHeroFileRef = useRef<HTMLInputElement>(null);
   const digitalFileRef = useRef<HTMLInputElement>(null);
+  const courseBuilderVideoFileRef = useRef<HTMLInputElement>(null);
 
   const [productId, setProductId] = useState<string | null>(null);
   const [listingStatus, setListingStatus] = useState<"draft" | "published">("draft");
@@ -915,7 +1050,7 @@ export default function AddProductClient({
   const ensureCheckoutDefaults = useCallback(() => {
     const k = (searchParams.get("kind") || "").toLowerCase();
     setDescriptionBody((prev) =>
-      prev.trim()
+      getPlainTextFromHtml(prev).trim()
         ? prev
         : k === "community"
           ? "Join a members-only community built for creators who want to grow together.\n\nInside the community, you'll get\n- Weekly live Q&A and accountability sessions\n- Private discussion channels and support\n- Exclusive resources, templates, and updates\n\nBecome a member today and connect with like-minded people."
@@ -1005,8 +1140,43 @@ export default function AddProductClient({
   }, [persistLocal]);
 
   useEffect(() => {
+    const t = window.setTimeout(() => {
+      setPreviewDescriptionBody(descriptionBody);
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, [descriptionBody, isEditingDescription]);
+
+  useEffect(() => {
+    if (!checkoutFieldDropdownOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (!checkoutFieldDropdownRef.current?.contains(e.target as Node)) {
+        setCheckoutFieldDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [checkoutFieldDropdownOpen]);
+
+  useEffect(() => {
+    setCustomCheckoutFields(
+      customCheckoutFieldCards.map((f) => f.label)
+    );
+  }, [customCheckoutFieldCards]);
+
+  useEffect(() => {
+    if (activeTab !== "checkout") return;
+    if (getPlainTextFromHtml(descriptionBody).trim()) return;
+    ensureCheckoutDefaults();
+  }, [activeTab, descriptionBody, ensureCheckoutDefaults]);
+
+  useEffect(() => {
     const el = descriptionBodyRef.current;
     if (!el) return;
+    // Do not rewrite DOM while user is typing; it can reset caret/cursor.
+    // But if editor is visually empty while state has content, hydrate it.
+    const editorLooksEmpty = !getPlainTextFromHtml(el.innerHTML).trim();
+    const stateHasContent = getPlainTextFromHtml(descriptionBody).trim().length > 0;
+    if (document.activeElement === el && !(editorLooksEmpty && stateHasContent)) return;
     const current = el.innerHTML;
     if (current === descriptionBody) return;
     if (/<[a-z][\s\S]*>/i.test(descriptionBody)) {
@@ -1047,7 +1217,19 @@ export default function AddProductClient({
     }
     if (typeof cj?.note === "string") setCheckoutNote(cj.note);
     if (cj?.price != null) setPrice(Number(cj.price));
-    if (typeof cj.description_body === "string") setDescriptionBody(cj.description_body);
+    const loadedDescriptionBody = typeof cj.description_body === "string" ? cj.description_body : "";
+    const normalizedLoadedDescriptionBody = sanitizeDescriptionForEditor(loadedDescriptionBody);
+    const isCommunityLike =
+      /community/i.test(p.title || "") ||
+      /community/i.test(p.subtitle || "") ||
+      /join now/i.test(p.button_text || "");
+    setDescriptionBody(
+      getPlainTextFromHtml(normalizedLoadedDescriptionBody).trim()
+        ? normalizedLoadedDescriptionBody
+        : isCommunityLike
+          ? "Join a members-only community built for creators who want to grow together.\n\nInside the community, you'll get\n- Weekly live Q&A and accountability sessions\n- Private discussion channels and support\n- Exclusive resources, templates, and updates\n\nBecome a member today and connect with like-minded people."
+          : buildDefaultDescriptionBody(p.subtitle || "")
+    );
     if (typeof cj.bottom_title === "string") setBottomTitle(cj.bottom_title);
     if (typeof cj.purchase_cta === "string") setPurchaseCta(cj.purchase_cta);
     if (typeof cj.discount_enabled === "boolean") setDiscountEnabled(cj.discount_enabled);
@@ -1062,11 +1244,30 @@ export default function AddProductClient({
     }
     if (Array.isArray(cj.custom_fields) && cj.custom_fields.every((x) => typeof x === "string")) {
       setCustomCheckoutFields(cj.custom_fields);
+      setCustomCheckoutFieldCards(
+        cj.custom_fields.map((label, idx) => ({
+          id:
+            typeof crypto !== "undefined" && "randomUUID" in crypto
+              ? crypto.randomUUID()
+              : `checkout-field-${idx}-${Date.now()}`,
+          type: "text",
+          label,
+          required: false,
+        }))
+      );
+    } else {
+      setCustomCheckoutFieldCards([]);
     }
     const oj = p.options_json as {
       note?: string;
       attached_file_name?: string;
       confirmation_email?: { subject?: string; body?: string };
+      reminder_email?: {
+        enabled?: boolean;
+        subject?: string;
+        body?: string;
+        timings?: { id?: string; amount?: string | number; unit?: string }[];
+      };
       email_flows?: { id?: string }[];
       reviews?: {
         id?: string;
@@ -1083,6 +1284,33 @@ export default function AddProductClient({
     else setConfirmationSubject(DEFAULT_CONFIRMATION_SUBJECT);
     if (ce && typeof ce.body === "string") setConfirmationBody(ce.body);
     else setConfirmationBody(DEFAULT_CONFIRMATION_BODY);
+    const re = oj?.reminder_email;
+    if (typeof re?.enabled === "boolean") setReminderEnabled(re.enabled);
+    else setReminderEnabled(true);
+    if (typeof re?.subject === "string") setReminderSubject(re.subject);
+    else setReminderSubject(DEFAULT_REMINDER_SUBJECT);
+    if (typeof re?.body === "string") setReminderBody(re.body);
+    else setReminderBody(DEFAULT_REMINDER_BODY);
+    if (Array.isArray(re?.timings)) {
+      const parsedTimings = re.timings
+        .filter((t) => t && typeof t === "object")
+        .map((t, idx) => ({
+          id:
+            typeof t.id === "string" && t.id
+              ? t.id
+              : typeof crypto !== "undefined" && "randomUUID" in crypto
+                ? crypto.randomUUID()
+                : `rem-${idx}-${Date.now()}`,
+          amount: String(t.amount ?? ""),
+          unit:
+            t.unit === "minute(s) before" || t.unit === "day(s) before"
+              ? t.unit
+              : "hour(s) before",
+        }));
+      setReminderTimings(parsedTimings.length ? parsedTimings : DEFAULT_REMINDER_TIMINGS);
+    } else {
+      setReminderTimings(DEFAULT_REMINDER_TIMINGS);
+    }
     if (Array.isArray(oj?.email_flows) && oj.email_flows.every((x) => x && typeof x.id === "string")) {
       setEmailFlowIds(oj.email_flows.map((x) => x.id as string));
     } else {
@@ -1144,6 +1372,7 @@ export default function AddProductClient({
     const isMembership = kind === "membership";
     const isWebinar = kind === "webinar";
     const isCommunity = kind === "community";
+    const isCourse = kind === "course";
     const isUrlMedia = kind === "url-media";
     const isAffiliate = kind === "affiliate";
     setProductId(null);
@@ -1155,6 +1384,8 @@ export default function AddProductClient({
         ? "Book a 1:1 Call with Me"
         : isWebinar
           ? "Join Me at the Webinar"
+        : isCourse
+          ? "Get started with this amazing course"
         : isCommunity
           ? "Join Our Private Community"
         : isUrlMedia
@@ -1167,28 +1398,31 @@ export default function AddProductClient({
           ? "Personalized Video Response"
           : "Get My [Template/eBook/Course] Now!"
     );
-    setSubtitle(
-      isCoaching
-        ? "Book a private coaching session with me!"
-        : isWebinar
-          ? "Grab a spot in my exclusive webinar!"
-        : isCommunity
-          ? "Get member-only chats, exclusive resources, and weekly live community calls."
-        : isUrlMedia
-          ? "Visit my Affiliate Link"
-        : isAffiliate
-          ? ""
-        : isMembership
-          ? "Get exclusive how-to tips, weekly check ins and live webinar with me!"
-        : isCustom
-          ? "I'll send you a custom video/product addressing your unique request!"
-          : "We will deliver this file right to your inbox"
-    );
+    const nextSubtitle = isCoaching
+      ? "Book a private coaching session with me!"
+      : isWebinar
+        ? "Grab a spot in my exclusive webinar!"
+      : isCourse
+        ? "A 2-line course summary to close the sale. What will they learn?"
+      : isCommunity
+        ? "Get member-only chats, exclusive resources, and weekly live community calls."
+      : isUrlMedia
+        ? "Visit my Affiliate Link"
+      : isAffiliate
+        ? ""
+      : isMembership
+        ? "Get exclusive how-to tips, weekly check ins and live webinar with me!"
+      : isCustom
+        ? "I'll send you a custom video/product addressing your unique request!"
+        : "We will deliver this file right to your inbox";
+    setSubtitle(nextSubtitle);
     setButtonText(
       isCoaching
         ? "Book a 1:1 Call with Me"
         : isWebinar
           ? "Claim Your Spot"
+      : isCourse
+        ? "GET MY COURSE"
         : isCommunity
           ? "Join Now"
         : isUrlMedia
@@ -1225,7 +1459,15 @@ export default function AddProductClient({
     setEmailFlowIds([]);
     setConfirmationSubject(DEFAULT_CONFIRMATION_SUBJECT);
     setConfirmationBody(DEFAULT_CONFIRMATION_BODY);
-    setDescriptionBody("");
+    setReminderEnabled(true);
+    setReminderSubject(DEFAULT_REMINDER_SUBJECT);
+    setReminderBody(DEFAULT_REMINDER_BODY);
+    setReminderTimings(DEFAULT_REMINDER_TIMINGS);
+    setDescriptionBody(
+      isCommunity
+        ? "Join a members-only community built for creators who want to grow together.\n\nInside the community, you'll get\n- Weekly live Q&A and accountability sessions\n- Private discussion channels and support\n- Exclusive resources, templates, and updates\n\nBecome a member today and connect with like-minded people."
+        : buildDefaultDescriptionBody(nextSubtitle)
+    );
     setBottomTitle(
       isCustom
         ? "Get Your Video!"
@@ -1261,6 +1503,7 @@ export default function AddProductClient({
     setDigitalFileName(null);
     setDigitalFileDataUrl(null);
     setCustomCheckoutFields([]);
+    setCustomCheckoutFieldCards([]);
     setThumbnailDataUrl(null);
     setCheckoutImageDataUrl(null);
     setThumbnailImageFileName(null);
@@ -1275,14 +1518,15 @@ export default function AddProductClient({
     }
   }, [searchParams]);
 
-  const buildBody = useCallback((saveStatus: "draft" | "published") => {
+  const buildBody = useCallback((saveStatus: "draft" | "published", activeTabOverride?: TabKey) => {
+    const tabForSave = activeTabOverride ?? activeTab;
     return {
       id: productId || undefined,
       status: saveStatus,
       active_tab:
-        activeTab === "availability" || activeTab === "course" || activeTab === "webinar"
+        tabForSave === "availability" || tabForSave === "webinar"
           ? "checkout"
-          : activeTab,
+          : tabForSave,
       style,
       title: title.slice(0, TITLE_MAX),
       subtitle: subtitle.slice(0, SUB_MAX),
@@ -1292,7 +1536,7 @@ export default function AddProductClient({
       checkout_json: {
         note: checkoutNote,
         price,
-        description_body: descriptionBody.slice(0, DESC_MAX),
+        description_body: normalizeDescriptionMarkup(descriptionBody).slice(0, DESC_MAX),
         bottom_title: bottomTitle.slice(0, BOTTOM_TITLE_MAX),
         purchase_cta: purchaseCta.slice(0, PURCHASE_CTA_MAX),
         discount_enabled: discountEnabled,
@@ -1324,6 +1568,12 @@ export default function AddProductClient({
           subject: confirmationSubject.slice(0, CONFIRMATION_SUBJECT_MAX),
           body: confirmationBody.slice(0, CONFIRMATION_BODY_MAX),
         },
+        reminder_email: {
+          enabled: reminderEnabled,
+          subject: reminderSubject.slice(0, CONFIRMATION_SUBJECT_MAX),
+          body: reminderBody.slice(0, CONFIRMATION_BODY_MAX),
+          timings: reminderTimings,
+        },
         email_flows: emailFlowIds.map((id) => ({ id })),
         reviews: reviews.map((r) => ({
           id: r.id,
@@ -1346,6 +1596,8 @@ export default function AddProductClient({
     checkoutImageDataUrl,
     checkoutNote,
     optionsNote,
+    lessonTitle,
+    lessonDescription,
     timeZone,
     meetingLocation,
     durationMins,
@@ -1360,6 +1612,10 @@ export default function AddProductClient({
     fileLabel,
     confirmationSubject,
     confirmationBody,
+    reminderEnabled,
+    reminderSubject,
+    reminderBody,
+    reminderTimings,
     emailFlowIds,
     reviews,
     descriptionBody,
@@ -1375,7 +1631,7 @@ export default function AddProductClient({
   ]);
 
   const saveToApi = useCallback(
-    async (saveStatus: "draft" | "published" = "draft"): Promise<boolean> => {
+    async (saveStatus: "draft" | "published" = "draft", activeTabOverride?: TabKey): Promise<boolean> => {
       if (!token) return false;
       setSaving(true);
       setSaveMsg("");
@@ -1386,7 +1642,7 @@ export default function AddProductClient({
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(buildBody(saveStatus)),
+          body: JSON.stringify(buildBody(saveStatus, activeTabOverride)),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.message || "Save failed.");
@@ -1450,6 +1706,20 @@ export default function AddProductClient({
     });
   };
 
+  const onPickCourseBuilderVideoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("video/")) {
+      setToast("Please choose a valid video file.");
+      return;
+    }
+    setCourseBuilderVideoName(file.name);
+    void readFileAsDataUrl(file).then((u) => {
+      setCourseBuilderVideoUrl(u);
+    });
+  };
+
   const handleSaveDraft = async () => {
     const ok = await saveToApi("draft");
     if (!ok) return;
@@ -1461,19 +1731,32 @@ export default function AddProductClient({
     }, TOAST_THEN_NAV_MS);
   };
 
+  useEffect(() => {
+    const autoSaveDraftOnExit = () => {
+      if (listingStatus === "published") return;
+      void saveToApi("draft");
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") autoSaveDraftOnExit();
+    };
+    window.addEventListener("pagehide", autoSaveDraftOnExit);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("pagehide", autoSaveDraftOnExit);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [listingStatus, saveToApi]);
+
+  const saveDraftBeforeNext = (targetTab: TabKey) => {
+    void saveToApi("draft", targetTab).then((ok) => {
+      if (!ok) {
+        setSaveMsg((prev) => prev || "Could not auto-save draft. Please try again.");
+      }
+    });
+  };
+
   const goToCheckoutTab = () => {
-    const e = validateThumbnailTab(thumbnailDataUrl, title, subtitle, buttonText);
-    if (thumbnailTabHasErrors(e)) {
-      setProductFormErrors((prev) => ({
-        ...prev,
-        listingImage: e.listingImage,
-        title: e.title,
-        subtitle: e.subtitle,
-        button: e.button,
-      }));
-      setSaveMsg("");
-      return;
-    }
+    if (!validateDigitalThumbnailForNavigation()) return;
     setProductFormErrors((prev) => ({
       ...prev,
       listingImage: undefined,
@@ -1484,6 +1767,7 @@ export default function AddProductClient({
     setSaveMsg("");
     ensureCheckoutDefaults();
     setActiveTab("checkout");
+    saveDraftBeforeNext("checkout");
   };
 
   const goToOptionsTab = () => {
@@ -1502,7 +1786,7 @@ export default function AddProductClient({
       digitalFileName,
       digitalRedirectUrl,
       customCheckoutFields,
-      true,
+      !isDigitalProductFlow,
     );
     if (publishHasErrors(e)) {
       setProductFormErrors((prev) => ({ ...prev, ...e }));
@@ -1557,6 +1841,7 @@ export default function AddProductClient({
       membershipCancelAfter: undefined,
     }));
     setActiveTab("options");
+    saveDraftBeforeNext("options");
   };
 
   const goToAvailabilityTab = () => {
@@ -1575,7 +1860,7 @@ export default function AddProductClient({
       digitalFileName,
       digitalRedirectUrl,
       customCheckoutFields,
-      true,
+      !isDigitalProductFlow,
     );
     if (publishHasErrors(e)) {
       setProductFormErrors((prev) => ({ ...prev, ...e }));
@@ -1630,6 +1915,7 @@ export default function AddProductClient({
       membershipCancelAfter: undefined,
     }));
     setActiveTab("availability");
+    saveDraftBeforeNext("availability");
   };
 
   const goToCourseTab = () => {
@@ -1648,7 +1934,7 @@ export default function AddProductClient({
       digitalFileName,
       digitalRedirectUrl,
       customCheckoutFields,
-      true,
+      !isDigitalProductFlow,
     );
     if (publishHasErrors(e)) {
       setProductFormErrors((prev) => ({ ...prev, ...e }));
@@ -1703,6 +1989,81 @@ export default function AddProductClient({
       membershipCancelAfter: undefined,
     }));
     setActiveTab("course");
+    saveDraftBeforeNext("course");
+  };
+
+  const goToWebinarTab = () => {
+    const e = validateListingAndCheckout(
+      thumbnailDataUrl,
+      title,
+      subtitle,
+      buttonText,
+      descriptionBody,
+      bottomTitle,
+      purchaseCta,
+      price,
+      discountEnabled,
+      discountPrice,
+      digitalDelivery,
+      digitalFileName,
+      digitalRedirectUrl,
+      customCheckoutFields,
+      !isDigitalProductFlow,
+    );
+    if (publishHasErrors(e)) {
+      setProductFormErrors((prev) => ({ ...prev, ...e }));
+      setSaveMsg("Please fix the highlighted fields before continuing.");
+      if (thumbnailTabHasErrors(e)) setActiveTab("thumbnail");
+      else setActiveTab("checkout");
+      return;
+    }
+    const cc = validateCommunityCopy(
+      isCommunityFlow,
+      title,
+      subtitle,
+      buttonText,
+    );
+    if (publishHasErrors(cc)) {
+      setProductFormErrors((prev) => ({ ...prev, ...cc }));
+      setSaveMsg("Please fix the highlighted fields before continuing.");
+      setActiveTab("thumbnail");
+      return;
+    }
+    setProductFormErrors((prev) => ({
+      ...prev,
+      listingImage: undefined,
+      title: undefined,
+      subtitle: undefined,
+      button: undefined,
+      descriptionBody: undefined,
+      bottomTitle: undefined,
+      purchaseCta: undefined,
+      price: undefined,
+      discountPrice: undefined,
+      digitalFile: undefined,
+      digitalRedirect: undefined,
+      customFields: undefined,
+    }));
+    setSaveMsg("");
+    const me = validateMembershipCheckout(
+      isMembershipFlow,
+      recurringCycle,
+      cancelSubscriptionAfterEnabled,
+      cancelSubscriptionAfter,
+    );
+    if (publishHasErrors(me)) {
+      setProductFormErrors((prev) => ({ ...prev, ...me }));
+      setSaveMsg("Please fix the highlighted fields before continuing.");
+      setActiveTab("checkout");
+      return;
+    }
+    setProductFormErrors((prev) => ({
+      ...prev,
+      membershipRecurring: undefined,
+      membershipCancelAfter: undefined,
+    }));
+    setActiveTab("webinar");
+    saveDraftBeforeNext("webinar");
   };
 
   const goToOptionsFromAvailability = () => {
@@ -1724,6 +2085,94 @@ export default function AddProductClient({
     setProductFormErrors((prev) => ({ ...prev, availability: undefined }));
     setSaveMsg("");
     setActiveTab("options");
+    saveDraftBeforeNext("options");
+  };
+
+  const validateDigitalThumbnailForNavigation = () => {
+    if (!isDigitalProductFlow && !isCourseCheckout && !isMembershipFlow && !isWebinarFlow) return true;
+    const e = validateThumbnailTab(thumbnailDataUrl, title, subtitle, buttonText);
+    if (thumbnailTabHasErrors(e)) {
+      setProductFormErrors((prev) => ({ ...prev, ...e }));
+      setSaveMsg("Please fix thumbnail fields before continuing.");
+      setActiveTab("thumbnail");
+      return false;
+    }
+    setProductFormErrors((prev) => ({
+      ...prev,
+      listingImage: undefined,
+      title: undefined,
+      subtitle: undefined,
+      button: undefined,
+    }));
+    return true;
+  };
+
+  const validateDigitalCheckoutForNavigation = () => {
+    if (!isDigitalProductFlow && !isCourseCheckout && !isMembershipFlow && !isWebinarFlow) return true;
+    const e = validateListingAndCheckout(
+      thumbnailDataUrl,
+      title,
+      subtitle,
+      buttonText,
+      descriptionBody,
+      bottomTitle,
+      purchaseCta,
+      price,
+      discountEnabled,
+      discountPrice,
+      digitalDelivery,
+      digitalFileName,
+      digitalRedirectUrl,
+      customCheckoutFields,
+      !isDigitalProductFlow,
+    );
+    if (isMembershipFlow) {
+      const me = validateMembershipCheckout(
+        isMembershipFlow,
+        recurringCycle,
+        cancelSubscriptionAfterEnabled,
+        cancelSubscriptionAfter,
+      );
+      Object.assign(e, me);
+    }
+    if (publishHasErrors(e)) {
+      setProductFormErrors((prev) => ({ ...prev, ...e }));
+      setSaveMsg("Please fix checkout fields before continuing.");
+      if (thumbnailTabHasErrors(e)) setActiveTab("thumbnail");
+      else setActiveTab("checkout");
+      return false;
+    }
+    return true;
+  };
+
+  const validateCourseForNavigation = () => {
+    if (!isCourseCheckout) return true;
+    const e = validateCourseTab(courseModules, lessonTitle, lessonDescription);
+    if (publishHasErrors(e)) {
+      setProductFormErrors((prev) => ({ ...prev, ...e }));
+      setSaveMsg("Please complete course page fields before continuing.");
+      setActiveTab("course");
+      return false;
+    }
+    setProductFormErrors((prev) => ({ ...prev, course: undefined }));
+    return true;
+  };
+
+  const validateWebinarForNavigation = () => {
+    if (!isWebinarFlow) return true;
+    const e = validateWebinarTab();
+    if (publishHasErrors(e)) {
+      setProductFormErrors((prev) => ({ ...prev, ...e }));
+      setSaveMsg("Please complete webinar fields before continuing.");
+      setActiveTab("webinar");
+      return false;
+    }
+    setProductFormErrors((prev) => ({
+      ...prev,
+      webinarSlots: undefined,
+      webinarSettings: undefined,
+    }));
+    return true;
   };
 
   const insertSubjectToken = (token: string) => {
@@ -1787,8 +2236,11 @@ export default function AddProductClient({
     const el = descriptionBodyRef.current;
     if (!el) return;
     el.focus();
+    const restored = restoreDescriptionSelection();
+    if (!restored) placeDescriptionCaretAtTypingLine();
     document.execCommand(cmd, false, value);
     syncDescriptionFromEditor();
+    saveDescriptionSelection();
   };
 
   const saveDescriptionSelection = () => {
@@ -1802,11 +2254,94 @@ export default function AddProductClient({
 
   const restoreDescriptionSelection = () => {
     const range = descriptionSelectionRef.current;
-    if (!range) return;
+    if (!range) return false;
+    const editor = descriptionBodyRef.current;
+    if (!editor) return false;
+    const startNode = range.startContainer;
+    const endNode = range.endContainer;
+    if (!editor.contains(startNode) || !editor.contains(endNode)) {
+      return false;
+    }
+    const sel = window.getSelection();
+    if (!sel) return false;
+    sel.removeAllRanges();
+    sel.addRange(range);
+    return true;
+  };
+
+  const placeDescriptionCaretAtEnd = () => {
+    const editor = descriptionBodyRef.current;
+    if (!editor) return;
+    editor.focus();
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false);
     const sel = window.getSelection();
     if (!sel) return;
     sel.removeAllRanges();
     sel.addRange(range);
+  };
+
+  const ensureDescriptionEditorIsTypeable = () => {
+    const editor = descriptionBodyRef.current;
+    if (!editor) return;
+    const lastEl = editor.lastElementChild as HTMLElement | null;
+    const needsTrailingParagraph =
+      !lastEl ||
+      !/^(P|DIV|LI|H1|H2|H3|H4|H5|H6)$/i.test(lastEl.tagName) ||
+      lastEl.querySelector("img,iframe,video") !== null;
+    if (needsTrailingParagraph) {
+      editor.insertAdjacentHTML("beforeend", "<p><br></p>");
+      syncDescriptionFromEditor();
+    }
+  };
+
+  const placeDescriptionCaretAtTypingLine = () => {
+    const editor = descriptionBodyRef.current;
+    if (!editor) return;
+    ensureDescriptionEditorIsTypeable();
+    const target =
+      (editor.querySelector("p:last-of-type") as HTMLElement | null) ||
+      (editor.lastElementChild as HTMLElement | null) ||
+      editor;
+    const range = document.createRange();
+    range.selectNodeContents(target);
+    range.collapse(false);
+    const sel = window.getSelection();
+    if (!sel) return;
+    sel.removeAllRanges();
+    sel.addRange(range);
+    descriptionSelectionRef.current = range.cloneRange();
+  };
+
+  const insertDescriptionHtmlAtCaret = (html: string) => {
+    const editor = descriptionBodyRef.current;
+    if (!editor) return;
+    editor.focus();
+    const restored = restoreDescriptionSelection();
+    if (!restored) placeDescriptionCaretAtEnd();
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    range.deleteContents();
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = html;
+    const frag = document.createDocumentFragment();
+    let node: ChildNode | null = null;
+    let lastNode: ChildNode | null = null;
+    while ((node = wrapper.firstChild)) {
+      lastNode = frag.appendChild(node);
+    }
+    range.insertNode(frag);
+    if (lastNode) {
+      const nextRange = document.createRange();
+      nextRange.setStartAfter(lastNode);
+      nextRange.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(nextRange);
+      descriptionSelectionRef.current = nextRange.cloneRange();
+    }
+    syncDescriptionFromEditor();
   };
 
   const onPickDescriptionImage = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1815,11 +2350,7 @@ export default function AddProductClient({
     if (!file) return;
     void readImageFileAsDataUrl(file).then((dataUrl) => {
       if (!dataUrl) return;
-      const editor = descriptionBodyRef.current;
-      if (!editor) return;
-      editor.focus();
-      restoreDescriptionSelection();
-      runDescriptionCommand("insertImage", dataUrl);
+      insertDescriptionHtmlAtCaret(`<img src="${dataUrl}" alt="Description media" />`);
     });
   };
 
@@ -1864,11 +2395,7 @@ export default function AddProductClient({
       setToast("Please enter a valid YouTube, Loom, or Wistia link.");
       return;
     }
-    const editor = descriptionBodyRef.current;
-    if (!editor) return;
-    editor.focus();
-    restoreDescriptionSelection();
-    runDescriptionCommand("insertHTML", embedHtml);
+    insertDescriptionHtmlAtCaret(embedHtml);
     closeDescriptionVideoModal();
   };
 
@@ -1882,12 +2409,7 @@ export default function AddProductClient({
     }
     void readFileAsDataUrl(file).then((dataUrl) => {
       if (!dataUrl) return;
-      const editor = descriptionBodyRef.current;
-      if (!editor) return;
-      editor.focus();
-      restoreDescriptionSelection();
-      runDescriptionCommand(
-        "insertHTML",
+      insertDescriptionHtmlAtCaret(
         `<video controls style="width:100%;max-width:680px;border-radius:12px;"><source src="${dataUrl}" type="${file.type}"></video>`
       );
       closeDescriptionVideoModal();
@@ -1918,12 +2440,7 @@ export default function AddProductClient({
     if (!/^https?:\/\//i.test(safeHref)) safeHref = `https://${safeHref}`;
     const name = descriptionLinkName.trim();
     const text = name || safeHref;
-    const editor = descriptionBodyRef.current;
-    if (!editor) return;
-    editor.focus();
-    restoreDescriptionSelection();
-    runDescriptionCommand(
-      "insertHTML",
+    insertDescriptionHtmlAtCaret(
       `<a href="${safeHref}" target="_blank" rel="noopener noreferrer">${text}</a>`
     );
     closeDescriptionLinkModal();
@@ -1965,7 +2482,7 @@ export default function AddProductClient({
           customCheckoutFields,
           confirmationSubject,
           confirmationBody,
-          true,
+          !isDigitalProductFlow,
         );
     if (isCoachingCheckout) {
       const ae = validateAvailabilityTab(
@@ -2060,7 +2577,10 @@ export default function AddProductClient({
     /submit your request/i.test(buttonText) ||
     /personalized video response/i.test(title);
   const isCourseCheckout =
-    (searchParams.get("kind") || "").toLowerCase() === "course";
+    (searchParams.get("kind") || "").toLowerCase() === "course" ||
+    /get started with this amazing course/i.test(title) ||
+    /^get my course$/i.test(buttonText.trim()) ||
+    activeTab === "course";
   const isMembershipFlow =
     (searchParams.get("kind") || "").toLowerCase() === "membership" ||
     /membership/i.test(title) ||
@@ -2068,9 +2588,13 @@ export default function AddProductClient({
     /join my membership/i.test(buttonText);
   const isWebinarFlow =
     (searchParams.get("kind") || "").toLowerCase() === "webinar" ||
-    /webinar/i.test(title) ||
-    /webinar/i.test(subtitle) ||
-    /claim your spot/i.test(buttonText);
+    (!isMembershipFlow &&
+      !isCourseCheckout &&
+      !isCoachingCheckout &&
+      !isCustomCheckout &&
+      (/webinar/i.test(title) ||
+        /webinar/i.test(subtitle) ||
+        /claim your spot/i.test(buttonText)));
   const isUrlMediaFlow =
     (searchParams.get("kind") || "").toLowerCase() === "url-media";
   const isAffiliateFlow =
@@ -2088,6 +2612,15 @@ export default function AddProductClient({
     (searchParams.get("kind") || "").toLowerCase() === "custom" ||
     /submit your request/i.test(buttonText) ||
     /personalized video response/i.test(title);
+  const isDigitalProductFlow =
+    !isCoachingCheckout &&
+    !isCustomCheckout &&
+    !isCourseCheckout &&
+    !isMembershipFlow &&
+    !isWebinarFlow &&
+    !isCommunityFlow &&
+    !isUrlMediaFlow &&
+    !isAffiliateFlow;
   const dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
   const weekNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const monthTitle = blockMonth.toLocaleString("en-US", { month: "long", year: "numeric" });
@@ -2207,11 +2740,11 @@ export default function AddProductClient({
         </div>
       }
       preview={
-        activeTab === "checkout" || activeTab === "options" ? (
+        activeTab === "checkout" || activeTab === "course" || activeTab === "options" ? (
           <CheckoutMobilePreview
             heroUrl={checkoutHeroPreviewUrl}
             title={title}
-            descriptionBody={descriptionBody}
+            descriptionBody={previewDescriptionBody}
             listPrice={listPrice}
             payPrice={payPrice}
             showDiscount={showDiscountUi}
@@ -2269,6 +2802,14 @@ export default function AddProductClient({
           };
           reader.readAsDataURL(file);
         }}
+        aria-hidden
+      />
+      <input
+        ref={courseBuilderVideoFileRef}
+        type="file"
+        className="hidden"
+        accept="video/*"
+        onChange={onPickCourseBuilderVideoFile}
         aria-hidden
       />
       <input
@@ -2338,6 +2879,7 @@ export default function AddProductClient({
               : undefined
           }
           onClick={() => {
+            if (activeTab === "thumbnail" && !validateDigitalThumbnailForNavigation()) return;
             ensureCheckoutDefaults();
             setActiveTab("checkout");
           }}
@@ -2354,7 +2896,12 @@ export default function AddProductClient({
                 ? { backgroundColor: PURPLE, color: "#fff" }
                 : undefined
             }
-            onClick={() => setActiveTab("webinar")}
+            onClick={() => {
+              if (!validateDigitalThumbnailForNavigation()) return;
+              ensureCheckoutDefaults();
+              if (!validateDigitalCheckoutForNavigation()) return;
+              setActiveTab("webinar");
+            }}
           >
             <IconCart className={activeTab === "webinar" ? "text-white" : "text-slate-500"} />
             Webinar
@@ -2369,7 +2916,12 @@ export default function AddProductClient({
                 ? { backgroundColor: PURPLE, color: "#fff" }
                 : undefined
             }
-            onClick={() => setActiveTab("course")}
+            onClick={() => {
+              if (!validateDigitalThumbnailForNavigation()) return;
+              ensureCheckoutDefaults();
+              if (!validateDigitalCheckoutForNavigation()) return;
+              setActiveTab("course");
+            }}
           >
             <IconCart className={activeTab === "course" ? "text-white" : "text-slate-500"} />
             Course
@@ -2398,7 +2950,14 @@ export default function AddProductClient({
               ? { backgroundColor: PURPLE, color: "#fff" }
               : undefined
           }
-          onClick={() => setActiveTab("options")}
+          onClick={() => {
+            if (!validateDigitalThumbnailForNavigation()) return;
+            ensureCheckoutDefaults();
+            if (!validateDigitalCheckoutForNavigation()) return;
+            if (!validateCourseForNavigation()) return;
+            if (!validateWebinarForNavigation()) return;
+            setActiveTab("options");
+          }}
         >
           <IconSliders className={activeTab === "options" ? "text-white" : "text-slate-500"} />
           Options
@@ -2452,7 +3011,7 @@ export default function AddProductClient({
                 ].filter(
                   (opt) =>
                     !(
-                      (isCustomThumbnail || isMembershipFlow || isWebinarFlow || isAffiliateFlow) &&
+                      (isCustomThumbnail || isMembershipFlow || isAffiliateFlow) &&
                       opt.key === "preview"
                     )
                 ) as const
@@ -2795,12 +3354,13 @@ export default function AddProductClient({
                 id="desc-title"
                 value={title}
                 maxLength={TITLE_MAX}
+                disabled
                 onChange={(e) => {
                   setTitle(e.target.value);
                   setProductFormErrors((p) => ({ ...p, title: undefined }));
                 }}
                 aria-invalid={Boolean(productFormErrors.title)}
-                className={`mt-1 w-full rounded-xl border px-4 py-3 text-[15px] outline-none ${
+                className={`mt-1 w-full rounded-xl border px-4 py-3 text-[15px] outline-none disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-500 ${
                   productFormErrors.title ? "border-rose-500 ring-1 ring-rose-100" : "border-slate-200"
                 }`}
               />
@@ -2828,6 +3388,7 @@ export default function AddProductClient({
                   <button
                     key={t.label}
                     type="button"
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={t.action}
                     className={`flex h-7 w-7 items-center justify-center rounded-md text-[16px] font-semibold hover:text-violet-700 ${
                       t.label === "H" ? "border border-slate-400 text-[14px]" : ""
@@ -2854,9 +3415,9 @@ export default function AddProductClient({
                     {t.label}
                   </button>
                 ))}
-                <span aria-hidden>⋮</span>
                 <button
                   type="button"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => runDescriptionCommand("insertUnorderedList")}
                   className="flex h-7 w-7 items-center justify-center rounded-md hover:text-violet-700"
                   aria-label="List"
@@ -2871,6 +3432,7 @@ export default function AddProductClient({
                 </button>
                 <button
                   type="button"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => {
                     saveDescriptionSelection();
                     descriptionImageFileRef.current?.click();
@@ -2887,6 +3449,7 @@ export default function AddProductClient({
                 </button>
                 <button
                   type="button"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => {
                     saveDescriptionSelection();
                     setDescriptionVideoModalOpen(true);
@@ -2902,6 +3465,7 @@ export default function AddProductClient({
                 </button>
                 <button
                   type="button"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={openDescriptionLinkModal}
                   className="flex h-7 w-7 items-center justify-center rounded-md hover:text-violet-700"
                   aria-label="Link"
@@ -2914,6 +3478,7 @@ export default function AddProductClient({
                 </button>
                 <button
                   type="button"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => {
                     const aiText =
                       "What you will get: Actionable step-by-step guidance, ready-to-use templates, and clear next steps.";
@@ -2934,105 +3499,35 @@ export default function AddProductClient({
                 id="desc-body"
                 contentEditable
                 suppressContentEditableWarning
+                onFocus={() => {
+                  setIsEditingDescription(true);
+                  placeDescriptionCaretAtTypingLine();
+                }}
+                onBlur={() => {
+                  setIsEditingDescription(false);
+                  setPreviewDescriptionBody(descriptionBody);
+                }}
+                onClick={() => {
+                  const sel = window.getSelection();
+                  const hasRange = Boolean(sel && sel.rangeCount > 0);
+                  if (!hasRange) placeDescriptionCaretAtTypingLine();
+                }}
+                onKeyDown={() => {
+                  const sel = window.getSelection();
+                  if (!sel || sel.rangeCount === 0) placeDescriptionCaretAtTypingLine();
+                }}
                 onInput={syncDescriptionFromEditor}
+                onMouseUp={saveDescriptionSelection}
+                onKeyUp={saveDescriptionSelection}
                 aria-invalid={Boolean(productFormErrors.descriptionBody)}
                 data-placeholder="Describe your product..."
-                className="min-h-[180px] w-full border-0 px-4 py-3 text-[15px] leading-relaxed outline-none focus:ring-0 empty:before:pointer-events-none empty:before:text-slate-400 empty:before:content-[attr(data-placeholder)] [&_h1]:text-[28px] [&_h1]:font-normal [&_h1]:leading-tight [&_h2]:text-[24px] [&_h2]:font-normal [&_h2]:leading-tight [&_h3]:text-[20px] [&_h3]:font-normal [&_h3]:leading-snug [&_p]:my-1 [&_ul]:my-2 [&_ul]:pl-5 [&_li]:list-disc"
+                className="min-h-[180px] w-full border-0 px-4 py-3 text-[15px] leading-relaxed outline-none focus:ring-0 empty:before:pointer-events-none empty:before:text-slate-400 empty:before:content-[attr(data-placeholder)] [&_h1]:text-[28px] [&_h1]:font-normal [&_h1]:leading-tight [&_h2]:text-[24px] [&_h2]:font-normal [&_h2]:leading-tight [&_h3]:text-[20px] [&_h3]:font-normal [&_h3]:leading-snug [&_p]:my-1 [&_ul]:my-2 [&_ul]:pl-5 [&_li]:list-disc [&_img]:my-4 [&_img]:block [&_img]:w-full [&_img]:max-h-[340px] [&_img]:rounded-xl [&_img]:object-contain [&_img]:bg-slate-50 [&_video]:my-4 [&_video]:mx-auto [&_video]:block [&_video]:w-full [&_video]:rounded-xl [&_iframe]:my-4 [&_iframe]:mx-auto [&_iframe]:block [&_iframe]:w-full [&_iframe]:min-h-[220px] [&_iframe]:rounded-xl"
               />
             </div>
             {productFormErrors.descriptionBody ? (
               <p className="mt-1.5 text-xs font-medium text-rose-600">{productFormErrors.descriptionBody}</p>
             ) : null}
             <div className="mt-6 space-y-5">
-              {isMembershipFlow || isWebinarFlow || isCommunityFlow ? (
-                <>
-                  <div>
-                    <div className="mb-1 flex items-center justify-between">
-                      <label htmlFor="bottom-title" className="text-sm font-semibold text-slate-800">
-                        Bottom Title<span className="text-rose-500">*</span>
-                      </label>
-                      <span className="text-xs text-slate-400">
-                        {bottomTitle.length}/{BOTTOM_TITLE_MAX}
-                      </span>
-                    </div>
-                    <input
-                      id="bottom-title"
-                      value={bottomTitle}
-                      maxLength={BOTTOM_TITLE_MAX}
-                      onChange={(e) => {
-                        setBottomTitle(e.target.value);
-                        setProductFormErrors((p) => ({ ...p, bottomTitle: undefined }));
-                      }}
-                      aria-invalid={Boolean(productFormErrors.bottomTitle)}
-                      className={`w-full rounded-xl border px-4 py-3 text-[15px] outline-none focus:ring-2 ${
-                        productFormErrors.bottomTitle
-                          ? "border-rose-500 focus:border-rose-500 focus:ring-rose-100"
-                          : "border-slate-200 focus:border-violet-400 focus:ring-violet-100"
-                      }`}
-                    />
-                    {productFormErrors.bottomTitle ? (
-                      <p className="mt-1.5 text-xs font-medium text-rose-600">{productFormErrors.bottomTitle}</p>
-                    ) : null}
-                  </div>
-                  <div>
-                    <div className="mb-1 flex items-center justify-between">
-                      <label htmlFor="purchase-cta" className="text-sm font-semibold text-slate-800">
-                        Call-to-Action Button<span className="text-rose-500">*</span>
-                      </label>
-                      <span className="text-xs text-slate-400">
-                        {purchaseCta.length}/{PURCHASE_CTA_MAX}
-                      </span>
-                    </div>
-                    <input
-                      id="purchase-cta"
-                      value={purchaseCta}
-                      maxLength={PURCHASE_CTA_MAX}
-                      onChange={(e) => {
-                        setPurchaseCta(e.target.value);
-                        setProductFormErrors((p) => ({ ...p, purchaseCta: undefined }));
-                      }}
-                      aria-invalid={Boolean(productFormErrors.purchaseCta)}
-                      className={`w-full rounded-xl border px-4 py-3 text-[15px] outline-none focus:ring-2 ${
-                        productFormErrors.purchaseCta
-                          ? "border-rose-500 focus:border-rose-500 focus:ring-rose-100"
-                          : "border-slate-200 focus:border-violet-400 focus:ring-violet-100"
-                      }`}
-                    />
-                    {productFormErrors.purchaseCta ? (
-                      <p className="mt-1.5 text-xs font-medium text-rose-600">{productFormErrors.purchaseCta}</p>
-                    ) : null}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div>
-                <div className="mb-1 flex items-center justify-between">
-                  <label htmlFor="purchase-cta" className="text-sm font-semibold text-slate-800">
-                    Call-to-Action Button<span className="text-rose-500">*</span>
-                  </label>
-                  <span className="text-xs text-slate-400">
-                    {purchaseCta.length}/{PURCHASE_CTA_MAX}
-                  </span>
-                </div>
-                <input
-                  id="purchase-cta"
-                  value={purchaseCta}
-                  maxLength={PURCHASE_CTA_MAX}
-                  onChange={(e) => {
-                    setPurchaseCta(e.target.value);
-                    setProductFormErrors((p) => ({ ...p, purchaseCta: undefined }));
-                  }}
-                  aria-invalid={Boolean(productFormErrors.purchaseCta)}
-                  className={`w-full rounded-xl border px-4 py-3 text-[15px] outline-none focus:ring-2 ${
-                    productFormErrors.purchaseCta
-                      ? "border-rose-500 focus:border-rose-500 focus:ring-rose-100"
-                      : "border-slate-200 focus:border-violet-400 focus:ring-violet-100"
-                  }`}
-                />
-                {productFormErrors.purchaseCta ? (
-                  <p className="mt-1.5 text-xs font-medium text-rose-600">{productFormErrors.purchaseCta}</p>
-                ) : null}
-              </div>
               <div>
                 <div className="mb-1 flex items-center justify-between">
                   <label htmlFor="bottom-title" className="text-sm font-semibold text-slate-800">
@@ -3061,8 +3556,34 @@ export default function AddProductClient({
                   <p className="mt-1.5 text-xs font-medium text-rose-600">{productFormErrors.bottomTitle}</p>
                 ) : null}
               </div>
-                </>
-              )}
+              <div>
+                <div className="mb-1 flex items-center justify-between">
+                  <label htmlFor="purchase-cta" className="text-sm font-semibold text-slate-800">
+                    Call-to-Action Button<span className="text-rose-500">*</span>
+                  </label>
+                  <span className="text-xs text-slate-400">
+                    {purchaseCta.length}/{PURCHASE_CTA_MAX}
+                  </span>
+                </div>
+                <input
+                  id="purchase-cta"
+                  value={purchaseCta}
+                  maxLength={PURCHASE_CTA_MAX}
+                  onChange={(e) => {
+                    setPurchaseCta(e.target.value);
+                    setProductFormErrors((p) => ({ ...p, purchaseCta: undefined }));
+                  }}
+                  aria-invalid={Boolean(productFormErrors.purchaseCta)}
+                  className={`w-full rounded-xl border px-4 py-3 text-[15px] outline-none focus:ring-2 ${
+                    productFormErrors.purchaseCta
+                      ? "border-rose-500 focus:border-rose-500 focus:ring-rose-100"
+                      : "border-slate-200 focus:border-violet-400 focus:ring-violet-100"
+                  }`}
+                />
+                {productFormErrors.purchaseCta ? (
+                  <p className="mt-1.5 text-xs font-medium text-rose-600">{productFormErrors.purchaseCta}</p>
+                ) : null}
+              </div>
             </div>
           </section>
 
@@ -3140,12 +3661,12 @@ export default function AddProductClient({
                         return next;
                       });
                     }}
-                    className={`relative h-5 w-10 rounded-full transition-colors ${
-                      discountEnabled ? "bg-violet-500" : "bg-slate-300"
+                    className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors ${
+                      discountEnabled ? "bg-violet-500" : "bg-[#bfd0e6]"
                     }`}
                   >
                     <span
-                      className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                      className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
                         discountEnabled ? "translate-x-5" : "translate-x-0.5"
                       }`}
                     />
@@ -3163,7 +3684,7 @@ export default function AddProductClient({
                     setProductFormErrors((p) => ({ ...p, discountPrice: undefined }));
                   }}
                   aria-invalid={Boolean(productFormErrors.discountPrice)}
-                  className={`mt-1 w-full rounded-lg border px-4 py-3 text-[15px] outline-none disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 ${
+                  className={`mt-1 w-full rounded-lg border px-4 py-3 text-[15px] outline-none disabled:cursor-not-allowed disabled:border-[#e7eef8] disabled:bg-[#f3f8ff] disabled:text-slate-400 ${
                     productFormErrors.discountPrice ? "border-rose-500 ring-1 ring-rose-100" : "border-slate-200"
                   }`}
                 />
@@ -3212,15 +3733,24 @@ export default function AddProductClient({
                         role="switch"
                         aria-checked={cancelSubscriptionAfterEnabled}
                         onClick={() => {
-                          setCancelSubscriptionAfterEnabled((v) => !v);
+                          setCancelSubscriptionAfterEnabled((v) => {
+                            const next = !v;
+                            if (next && cancelSubscriptionAfter === "N/A (ongoing payments)") {
+                              setCancelSubscriptionAfter("3 months");
+                            }
+                            if (!next) {
+                              setCancelSubscriptionAfter("N/A (ongoing payments)");
+                            }
+                            return next;
+                          });
                           setProductFormErrors((p) => ({ ...p, membershipCancelAfter: undefined }));
                         }}
-                        className={`relative h-5 w-10 rounded-full transition-colors ${
-                          cancelSubscriptionAfterEnabled ? "bg-violet-500" : "bg-slate-300"
+                        className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors ${
+                          cancelSubscriptionAfterEnabled ? "bg-violet-500" : "bg-[#bfd0e6]"
                         }`}
                       >
                         <span
-                          className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                          className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
                             cancelSubscriptionAfterEnabled ? "translate-x-5" : "translate-x-0.5"
                           }`}
                         />
@@ -3237,9 +3767,16 @@ export default function AddProductClient({
                       className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-4 py-3 text-[15px] outline-none disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
                     >
                       <option>N/A (ongoing payments)</option>
-                      <option>After 3 payments</option>
-                      <option>After 6 payments</option>
-                      <option>After 12 payments</option>
+                      <option>3 months</option>
+                      <option>4 months</option>
+                      <option>5 months</option>
+                      <option>6 months</option>
+                      <option>7 months</option>
+                      <option>8 months</option>
+                      <option>9 months</option>
+                      <option>10 months</option>
+                      <option>11 months</option>
+                      <option>12 months</option>
                     </select>
                     {productFormErrors.membershipCancelAfter ? (
                       <p className="mt-1.5 text-xs font-medium text-rose-600">{productFormErrors.membershipCancelAfter}</p>
@@ -3288,41 +3825,293 @@ export default function AddProductClient({
                   className="flex-1 cursor-not-allowed bg-transparent text-[15px] outline-none"
                 />
               </div>
-              {customCheckoutFields.map((field, idx) => (
-                <input
-                  key={idx}
-                  value={field}
-                  onChange={(e) => {
-                    const next = [...customCheckoutFields];
-                    next[idx] = e.target.value;
-                    setCustomCheckoutFields(next);
-                    setProductFormErrors((p) => ({ ...p, customFields: undefined }));
-                  }}
-                  placeholder={`Custom field ${idx + 1}`}
-                  aria-invalid={Boolean(productFormErrors.customFields && !field.trim())}
-                  className={`w-full rounded-xl border px-4 py-3 text-[15px] outline-none focus:border-violet-400 ${
-                    productFormErrors.customFields && !field.trim()
-                      ? "border-rose-400 ring-1 ring-rose-100"
-                      : "border-slate-200"
-                  }`}
-                />
+              {customCheckoutFieldCards.map((field) => (
+                <div key={field.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                  <div className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5">
+                    <span className="text-slate-400" aria-hidden>
+                      {field.type === "phone"
+                        ? "📞"
+                        : field.type === "text"
+                          ? "≡"
+                          : field.type === "multiple_choice"
+                            ? "◉"
+                            : field.type === "dropdown"
+                              ? "◌"
+                              : "☑"}
+                    </span>
+                    <input
+                      value={field.label}
+                      onChange={(e) => {
+                        setCustomCheckoutFieldCards((prev) =>
+                          prev.map((f) => (f.id === field.id ? { ...f, label: e.target.value } : f))
+                        );
+                        setProductFormErrors((p) => ({ ...p, customFields: undefined }));
+                      }}
+                      placeholder={
+                        field.type === "phone"
+                          ? "Phone Number"
+                          : field.type === "text"
+                            ? "Short Answer Title"
+                            : field.type === "multiple_choice"
+                              ? "Multiple choice title..."
+                              : field.type === "dropdown"
+                                ? "Dropdown title..."
+                                : "Checkbox title..."
+                      }
+                      className="min-w-0 flex-1 bg-transparent text-[15px] outline-none"
+                    />
+                  </div>
+                  {field.options && field.options.length > 0 ? (
+                    <div className="mt-3 space-y-2">
+                      {field.options.map((opt, i) => (
+                        <div key={`${field.id}-opt-${i}`} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2">
+                          <span className="text-slate-300" aria-hidden>⋮⋮</span>
+                          <input
+                            value={opt}
+                            onChange={(e) => {
+                              setCustomCheckoutFieldCards((prev) =>
+                                prev.map((f) => {
+                                  if (f.id !== field.id || !f.options) return f;
+                                  const next = [...f.options];
+                                  next[i] = e.target.value;
+                                  return { ...f, options: next };
+                                })
+                              );
+                            }}
+                            className="min-w-0 flex-1 bg-transparent text-[15px] outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCustomCheckoutFieldCards((prev) =>
+                                prev.map((f) => {
+                                  if (f.id !== field.id || !f.options) return f;
+                                  const next = f.options.filter((_, idx) => idx !== i);
+                                  return { ...f, options: next.length ? next : ["Option 1"] };
+                                })
+                              );
+                            }}
+                            className="text-slate-400 hover:text-rose-500"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCustomCheckoutFieldCards((prev) =>
+                            prev.map((f) =>
+                              f.id === field.id && f.options
+                                ? { ...f, options: [...f.options, `Option ${f.options.length + 1}`] }
+                                : f
+                            )
+                          );
+                        }}
+                        className="text-sm font-semibold"
+                        style={{ color: PURPLE }}
+                      >
+                        + Add Option
+                      </button>
+                    </div>
+                  ) : null}
+                  <div className="mt-3 flex items-center justify-end gap-3">
+                    <span className="text-sm font-semibold text-slate-700">Required</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCustomCheckoutFieldCards((prev) =>
+                          prev.map((f) => (f.id === field.id ? { ...f, required: !f.required } : f))
+                        );
+                      }}
+                      className={`relative h-5 w-10 rounded-full ${field.required ? "bg-violet-500" : "bg-slate-300"}`}
+                      aria-label="Required toggle"
+                    >
+                      <span
+                        className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${
+                          field.required ? "translate-x-5" : "translate-x-0.5"
+                        }`}
+                      />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCustomCheckoutFieldCards((prev) => prev.filter((f) => f.id !== field.id));
+                        setProductFormErrors((p) => ({ ...p, customFields: undefined }));
+                      }}
+                      className="text-slate-400 hover:text-rose-500"
+                      aria-label="Delete field"
+                    >
+                      🗑
+                    </button>
+                  </div>
+                </div>
               ))}
               {productFormErrors.customFields ? (
                 <p className="text-xs font-medium text-rose-600">{productFormErrors.customFields}</p>
               ) : null}
-              <button
-                type="button"
-                onClick={() => {
-                  setCustomCheckoutFields((f) => [...f, ""]);
-                  setProductFormErrors((p) => ({ ...p, customFields: undefined }));
-                }}
-                className="rounded-xl border-2 px-5 py-2.5 text-sm font-bold"
-                style={{ borderColor: PURPLE, color: PURPLE }}
-              >
-                + Add Field
-              </button>
+              <div className="relative inline-block" ref={checkoutFieldDropdownRef}>
+                <button
+                  type="button"
+                  onClick={() => setCheckoutFieldDropdownOpen((v) => !v)}
+                  className="rounded-xl border-2 px-5 py-2.5 text-sm font-bold"
+                  style={{ borderColor: PURPLE, color: PURPLE }}
+                >
+                  + Add Field
+                </button>
+                {checkoutFieldDropdownOpen ? (
+                  <div className="absolute left-0 top-[calc(100%+8px)] z-20 min-w-[220px] overflow-hidden rounded-2xl border border-slate-100 bg-white py-2 shadow-xl">
+                    {CHECKOUT_FIELD_CHOICES.map((opt) => (
+                      <button
+                        key={opt.label}
+                        type="button"
+                        onClick={() => {
+                          const mappedType: CheckoutFieldType =
+                            opt.label === "Phone"
+                              ? "phone"
+                              : opt.label === "Text"
+                                ? "text"
+                                : opt.label === "Multiple choice"
+                                  ? "multiple_choice"
+                                  : opt.label === "Dropdown"
+                                    ? "dropdown"
+                                    : "checkboxes";
+                          const defaultLabel =
+                            mappedType === "phone"
+                              ? "Phone Number"
+                              : mappedType === "text"
+                                ? "Short Answer Title"
+                                : "";
+                          setCustomCheckoutFieldCards((prev) => [
+                            ...prev,
+                            {
+                              id:
+                                typeof crypto !== "undefined" && "randomUUID" in crypto
+                                  ? crypto.randomUUID()
+                                  : `checkout-field-${Date.now()}-${prev.length}`,
+                              type: mappedType,
+                              label: defaultLabel,
+                              required: false,
+                              options:
+                                mappedType === "multiple_choice" ||
+                                mappedType === "dropdown" ||
+                                mappedType === "checkboxes"
+                                  ? ["Option 1", "Option 2"]
+                                  : undefined,
+                            },
+                          ]);
+                          setProductFormErrors((p) => ({ ...p, customFields: undefined }));
+                          setCheckoutFieldDropdownOpen(false);
+                        }}
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-lg font-semibold text-slate-800 hover:bg-slate-50"
+                      >
+                        <span className="text-base text-slate-400" aria-hidden>
+                          {opt.icon}
+                        </span>
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
             </div>
           </section>
+
+          {isDigitalProductFlow ? (
+            <section>
+              <h2 className="text-base font-bold text-slate-900">
+                5<span className="ml-2 font-semibold">Upload your Digital Product</span>
+              </h2>
+              <div className="mt-4">
+                <label className="text-sm font-semibold text-slate-800">
+                  Digital Product <span className="text-rose-500">*</span>
+                </label>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm text-slate-900">
+                    Stan will send these files automatically to your customer upon purchase!
+                  </p>
+                  <div className="inline-flex overflow-hidden rounded-lg border border-violet-500">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDigitalDelivery("upload");
+                        setProductFormErrors((p) => ({ ...p, digitalRedirect: undefined }));
+                      }}
+                      className={`px-4 py-2 text-sm font-semibold transition ${
+                        digitalDelivery === "upload"
+                          ? "bg-violet-500 text-white"
+                          : "bg-white text-violet-600"
+                      }`}
+                    >
+                      Upload File
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDigitalDelivery("redirect");
+                        setProductFormErrors((p) => ({ ...p, digitalFile: undefined }));
+                      }}
+                      className={`border-l border-violet-500 px-4 py-2 text-sm font-semibold transition ${
+                        digitalDelivery === "redirect"
+                          ? "bg-violet-500 text-white"
+                          : "bg-white text-violet-600"
+                      }`}
+                    >
+                      Redirect to URL
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {digitalDelivery === "upload" ? (
+                <div className="mt-4 rounded-xl border border-dashed border-[#d8e8ff] bg-white p-7 text-center">
+                  <p className="text-[15px] text-slate-500">Drag Your File(s) Here</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      digitalFileRef.current?.click();
+                      setProductFormErrors((p) => ({ ...p, digitalFile: undefined }));
+                    }}
+                    className="mt-4 rounded-xl border px-8 py-2 text-[15px] font-semibold"
+                    style={{ borderColor: PURPLE, color: PURPLE }}
+                  >
+                    Upload
+                  </button>
+                  {digitalFileName ? (
+                    <p className="mt-3 truncate text-sm text-slate-600">{digitalFileName}</p>
+                  ) : null}
+                  {productFormErrors.digitalFile ? (
+                    <p className="mt-2 text-xs font-medium text-rose-600">{productFormErrors.digitalFile}</p>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="mt-4">
+                  <label htmlFor="digital-redirect-url" className="text-sm font-semibold text-slate-800">
+                    Redirect URL <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    id="digital-redirect-url"
+                    type="url"
+                    value={digitalRedirectUrl}
+                    onChange={(e) => {
+                      setDigitalRedirectUrl(e.target.value);
+                      setProductFormErrors((p) => ({ ...p, digitalRedirect: undefined }));
+                    }}
+                    placeholder="https://example.com/download"
+                    aria-invalid={Boolean(productFormErrors.digitalRedirect)}
+                    className={`mt-1 w-full rounded-xl border px-4 py-3 text-[15px] outline-none focus:ring-2 ${
+                      productFormErrors.digitalRedirect
+                        ? "border-rose-500 focus:border-rose-500 focus:ring-rose-100"
+                        : "border-slate-200 focus:border-violet-400 focus:ring-violet-100"
+                    }`}
+                  />
+                  {productFormErrors.digitalRedirect ? (
+                    <p className="mt-1.5 text-xs font-medium text-rose-600">{productFormErrors.digitalRedirect}</p>
+                  ) : null}
+                </div>
+              )}
+            </section>
+          ) : null}
 
           
         </div>
@@ -3345,7 +4134,7 @@ export default function AddProductClient({
                       onClick={() =>
                         setWebinarDatePickerIndex((prev) => (prev === idx ? null : idx))
                       }
-                      className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-left text-[22px] font-semibold text-slate-800"
+                      className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-left text-lg font-semibold text-slate-800"
                     >
                       <span>{formatSlotDate(slot.dateIso)}</span>
                       <span className="text-slate-400">▾</span>
@@ -3401,7 +4190,7 @@ export default function AddProductClient({
                       onClick={() =>
                         setWebinarTimeOptionsOpenIndex((prev) => (prev === idx ? null : idx))
                       }
-                      className="flex w-full items-center justify-between rounded-xl border border-violet-400 bg-white px-4 py-3 text-left text-[22px] font-semibold text-slate-800"
+                      className="flex w-full items-center justify-between rounded-xl border border-violet-400 bg-white px-4 py-3 text-left text-lg font-semibold text-slate-800"
                     >
                       <span>{slot.time}</span>
                       <span className="text-slate-400">▾</span>
@@ -3535,12 +4324,19 @@ export default function AddProductClient({
               <p className="mb-2 text-sm font-semibold text-slate-800">Video</p>
               <div className="rounded-xl border border-dashed border-slate-300 bg-white p-4">
                 <div className="flex items-center justify-between gap-4">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-slate-100 text-2xl text-slate-500">
-                    ▶
+                  <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-lg bg-slate-100 text-2xl text-slate-500">
+                    {courseBuilderVideoUrl ? (
+                      <video src={courseBuilderVideoUrl} className="h-full w-full object-cover" />
+                    ) : (
+                      "▶"
+                    )}
                   </div>
-                  <div className="flex-1 text-center text-sm text-slate-500">Upload a lesson video here</div>
+                  <div className="flex-1 text-center text-sm text-slate-500">
+                    {courseBuilderVideoName ? `Selected: ${courseBuilderVideoName}` : "Upload a lesson video here"}
+                  </div>
                   <button
                     type="button"
+                    onClick={() => courseBuilderVideoFileRef.current?.click()}
                     className="rounded-lg border px-4 py-2 text-sm font-semibold text-violet-700"
                     style={{ borderColor: "#a78bfa" }}
                   >
@@ -3889,7 +4685,17 @@ export default function AddProductClient({
                         <span>to</span>
                         <select className="rounded-lg border border-slate-200 px-2 py-1.5"><option>5:00 PM</option></select>
                         <button type="button" className="px-1 text-slate-400">+</button>
-                        <button type="button" className="px-1 text-slate-400">🗑</button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveAvailabilityDays((prev) => prev.filter((d) => d !== day));
+                            setProductFormErrors((p) => ({ ...p, availabilityDays: undefined, availability: undefined }));
+                          }}
+                          className="px-1 text-slate-400 hover:text-rose-500"
+                          aria-label={`Delete ${day} availability`}
+                        >
+                          🗑
+                        </button>
                       </div>
                     ) : null}
                   </div>
@@ -4267,6 +5073,166 @@ export default function AddProductClient({
             ) : null}
           </div>
 
+          {isCoachingCheckout ? (
+            <div className="rounded-2xl border border-slate-200 bg-white shadow-[0_4px_24px_rgba(15,23,42,.06)]">
+              <button
+                type="button"
+                onClick={() => setReminderOpen((o) => !o)}
+                className="flex w-full items-center justify-between gap-3 rounded-2xl px-5 py-4 text-left transition hover:bg-slate-50/80"
+              >
+                <span className="flex items-center gap-3">
+                  <span className="text-slate-500">🔔</span>
+                  <span className="text-base font-bold text-slate-900">Reminder</span>
+                </span>
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className={`shrink-0 text-slate-400 transition ${reminderOpen ? "rotate-180" : ""}`}
+                  aria-hidden
+                >
+                  <path d="m6 9 6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              {reminderOpen ? (
+                <div className="space-y-5 border-t border-slate-100 px-5 pb-5 pt-4">
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={reminderEnabled}
+                      onClick={() => setReminderEnabled((v) => !v)}
+                      className={`relative h-6 w-11 rounded-full ${reminderEnabled ? "bg-violet-500" : "bg-slate-300"}`}
+                    >
+                      <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition ${reminderEnabled ? "left-5" : "left-0.5"}`} />
+                    </button>
+                    <div>
+                      <p className="text-lg font-bold text-slate-900">Email Reminders</p>
+                      <p className="text-sm text-slate-500">Send a reminder email before specified times.</p>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="rem-subject">
+                        Subject
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setReminderSubject(DEFAULT_REMINDER_SUBJECT)}
+                        className="text-xs font-semibold text-blue-600 hover:underline"
+                      >
+                        Restore Default
+                      </button>
+                    </div>
+                    <input
+                      id="rem-subject"
+                      value={reminderSubject}
+                      maxLength={CONFIRMATION_SUBJECT_MAX}
+                      onChange={(e) => setReminderSubject(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 px-4 py-3 text-[15px] outline-none focus:border-violet-400"
+                    />
+                  </div>
+                  <div>
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="rem-body">
+                        Body
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setReminderBody(DEFAULT_REMINDER_BODY)}
+                        className="text-xs font-semibold text-blue-600 hover:underline"
+                      >
+                        Restore Default
+                      </button>
+                    </div>
+                    <textarea
+                      id="rem-body"
+                      value={reminderBody}
+                      maxLength={CONFIRMATION_BODY_MAX}
+                      onChange={(e) => setReminderBody(e.target.value)}
+                      rows={8}
+                      className="w-full resize-y rounded-xl border border-slate-200 px-4 py-3 text-[15px] outline-none focus:border-violet-400"
+                    />
+                  </div>
+                  <div>
+                    <p className="text-xl font-bold text-slate-900">Timing</p>
+                    <div className="mt-3 space-y-3">
+                      {reminderTimings.map((timing) => (
+                        <div key={timing.id} className="flex items-center gap-3">
+                          <input
+                            value={timing.amount}
+                            onChange={(e) => {
+                              const val = e.target.value.replace(/[^\d]/g, "");
+                              setReminderTimings((prev) =>
+                                prev.map((t) => (t.id === timing.id ? { ...t, amount: val } : t))
+                              );
+                            }}
+                            className="w-40 rounded-xl border border-slate-200 px-4 py-3 text-[15px] font-semibold outline-none focus:border-violet-400"
+                          />
+                          <select
+                            value={timing.unit}
+                            onChange={(e) => {
+                              const unit =
+                                e.target.value === "minute(s) before"
+                                  ? "minute(s) before"
+                                  : e.target.value === "day(s) before"
+                                    ? "day(s) before"
+                                    : "hour(s) before";
+                              setReminderTimings((prev) =>
+                                prev.map((t) => (t.id === timing.id ? { ...t, unit } : t))
+                              );
+                            }}
+                            className="w-80 rounded-xl border border-slate-200 px-4 py-3 text-[15px] font-semibold outline-none focus:border-violet-400"
+                          >
+                            <option>minute(s) before</option>
+                            <option>hour(s) before</option>
+                            <option>day(s) before</option>
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setReminderTimings((prev) =>
+                                prev.length > 1 ? prev.filter((t) => t.id !== timing.id) : prev
+                              )
+                            }
+                            className="px-2 text-slate-400 hover:text-rose-500"
+                            aria-label="Delete reminder timing"
+                            title="Delete reminder timing"
+                          >
+                            🗑
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setReminderTimings((prev) => [
+                          ...prev,
+                          {
+                            id:
+                              typeof crypto !== "undefined" && "randomUUID" in crypto
+                                ? crypto.randomUUID()
+                                : `rem-${Date.now()}-${prev.length}`,
+                            amount: String(prev.length + 1),
+                            unit: "hour(s) before",
+                          },
+                        ])
+                      }
+                      className="mt-4 w-full rounded-xl border-2 px-4 py-2.5 text-sm font-bold"
+                      style={{ borderColor: PURPLE, color: PURPLE }}
+                    >
+                      + Add Reminder
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="rounded-2xl border border-slate-200 bg-white shadow-[0_4px_24px_rgba(15,23,42,.06)]">
             <button
               type="button"
@@ -4528,15 +5494,19 @@ export default function AddProductClient({
             </svg>
             Save As Draft
           </button>
-          {activeTab === "checkout" && !isCustomCheckout ? (
+          {activeTab === "checkout" ? (
             <button
               type="button"
               disabled={saving || Boolean(toast)}
-              onClick={() => void handlePublish()}
-              className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
-              style={{ backgroundColor: PURPLE }}
+              onClick={isWebinarFlow ? goToWebinarTab : () => void handlePublish()}
+              className={
+                isWebinarFlow
+                  ? "rounded-full border-2 border-slate-200 bg-white px-6 py-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50 disabled:opacity-50"
+                  : "inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
+              }
+              style={isWebinarFlow ? undefined : { backgroundColor: PURPLE }}
             >
-              Publish
+              {isWebinarFlow ? "Next" : "Publish"}
             </button>
           ) : null}
           {activeTab === "course" ? (
@@ -4576,10 +5546,11 @@ export default function AddProductClient({
             <button
               type="button"
               disabled={saving || Boolean(toast)}
-              onClick={goToOptionsFromAvailability}
-              className="rounded-full border-2 border-slate-200 bg-white px-6 py-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50 disabled:opacity-50"
+              onClick={() => void handlePublish()}
+              className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
+              style={{ backgroundColor: PURPLE }}
             >
-              Next
+              Publish
             </button>
           ) : null}
           {activeTab === "thumbnail" ? (
