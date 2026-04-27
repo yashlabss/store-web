@@ -50,6 +50,8 @@ export default function ThankYouPage() {
   const username = typeof params?.username === "string" ? params.username : "";
   const orderId = searchParams.get("order");
   const token = searchParams.get("token");
+  const meetLink = searchParams.get("meet");
+  const bookingError = searchParams.get("booking_error");
   const hasAccessParams = Boolean(orderId && token);
 
   const [loading, setLoading] = useState(hasAccessParams);
@@ -209,6 +211,22 @@ export default function ThankYouPage() {
 
           <div className="mt-8">
             <h2 className="text-sm font-bold uppercase tracking-wide text-slate-400">Access</h2>
+            {bookingError ? (
+              <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
+                {bookingError}
+              </p>
+            ) : null}
+            {meetLink ? (
+              <a
+                href={meetLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 flex w-full items-center justify-center rounded-full py-3.5 text-[15px] font-bold text-white transition hover:opacity-95"
+                style={{ backgroundColor: "#0a7a69" }}
+              >
+                Join Google Meet
+              </a>
+            ) : null}
             {showRedirect ? (
               <a
                 href={delivery.redirect_url!}

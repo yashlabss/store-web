@@ -559,6 +559,67 @@ function validateAvailabilityTab(
   return e;
 }
 
+function validateCoachingAvailabilityRules(
+  isCoachingCheckout: boolean,
+  meetingLocation: string,
+  preventBookingHours: string,
+  bookWithinDays: string,
+  activeAvailabilityDays: string[],
+  googleCalendarConnected: boolean,
+): ProductFormErrors {
+  const e: ProductFormErrors = {};
+  if (!isCoachingCheckout) return e;
+  const minNotice = Number(preventBookingHours);
+  const maxAdvance = Number(bookWithinDays);
+  if (!Number.isFinite(minNotice) || minNotice < 12) {
+    e.availabilityPreventHours = "For coaching, minimum notice must be at least 12 hours.";
+  }
+  if (!Number.isFinite(maxAdvance) || maxAdvance < 1 || maxAdvance > 60) {
+    e.availabilityBookWithinDays = "For coaching, maximum advance booking must be between 1 and 60 days.";
+  }
+  const requiredWeekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+  const missingWeekday = requiredWeekdays.some((day) => !activeAvailabilityDays.includes(day));
+  if (missingWeekday) {
+    e.availabilityDays = "For coaching, keep Monday-Friday available.";
+  }
+  if (meetingLocation === "Default") {
+    e.availabilityMeetingLocation = "Choose Zoom, Google Meet, or Custom Location for coaching.";
+  }
+  if (meetingLocation === "Google Meet" && !googleCalendarConnected) {
+    e.availabilityMeetingLocation = "Connect Google Calendar to use Google Meet automatic links.";
+  }
+  if (
+    e.availabilityPreventHours ||
+    e.availabilityBookWithinDays ||
+    e.availabilityDays ||
+    e.availabilityMeetingLocation
+  ) {
+    e.availability = "Please complete coaching availability rules before continuing.";
+  }
+  return e;
+}
+
+function validateCoachingOptionsRules(
+  isCoachingCheckout: boolean,
+  reminderEnabled: boolean,
+  reminderBody: string,
+  reminderTimings: ReminderTiming[],
+): ProductFormErrors {
+  const e: ProductFormErrors = {};
+  if (!isCoachingCheckout) return e;
+  if (!reminderEnabled) {
+    e.confirmationBody = "Enable reminders for coaching so clients receive meeting details.";
+    return e;
+  }
+  if (!/meeting link/i.test(reminderBody)) {
+    e.confirmationBody = "Reminder email must include a valid Meeting Link placeholder.";
+  }
+  if (!Array.isArray(reminderTimings) || reminderTimings.length === 0) {
+    e.confirmationBody = "Add at least one reminder timing for coaching meetings.";
+  }
+  return e;
+}
+
 function insertIntoTextarea(
   value: string,
   selectionStart: number,
@@ -674,8 +735,52 @@ type ProductApi = {
   thumbnail_url: string | null;
   checkout_json: CheckoutJsonShape & Record<string, unknown>;
   options_json: Record<string, unknown>;
+  /** Persisted canonical type for public store (booking, Meet link). */
+  product_type?: string | null;
 };
 
+/** Canonical product label for API + buyer-side detection (coaching Meet booking). */
+function inferProductTypeForSave(opts: {
+  kind: string;
+  title: string;
+  subtitle: string;
+  buttonText: string;
+  activeTab: TabKey;
+}): string {
+  const k = opts.kind.toLowerCase();
+  if (k === "coaching") return "coaching";
+  if (k === "course") return "course";
+  if (k === "membership") return "membership";
+  if (k === "webinar") return "webinar";
+  if (k === "custom") return "custom";
+  if (k === "community") return "community";
+  if (k === "url-media") return "url-media";
+  if (k === "affiliate") return "affiliate";
+  if (/1:1\s*call/i.test(opts.buttonText) || /coaching/i.test(opts.subtitle)) return "coaching";
+  if (
+    /get started with this amazing course/i.test(opts.title) ||
+    /^get my course$/i.test(opts.buttonText.trim()) ||
+    opts.activeTab === "course"
+  )
+    return "course";
+  if (
+    /membership/i.test(opts.title) ||
+    /membership/i.test(opts.subtitle) ||
+    /join my membership/i.test(opts.buttonText)
+  )
+    return "membership";
+  if (
+    /webinar/i.test(opts.title) ||
+    /webinar/i.test(opts.subtitle) ||
+    /claim your spot/i.test(opts.buttonText)
+  )
+    return "webinar";
+  if (/submit your request/i.test(opts.buttonText) || /personalized video response/i.test(opts.title))
+    return "custom";
+  if (/community/i.test(opts.title) || /community/i.test(opts.subtitle) || /join now/i.test(opts.buttonText))
+    return "community";
+  return "digital";
+}
 
 function ProductLivePreview({
   style,
@@ -936,6 +1041,10 @@ export default function AddProductClient({
   const [optionsNote, setOptionsNote] = useState("");
   const [timeZone, setTimeZone] = useState("IST - Kolkata, Calcutta | UTC +5.5");
   const [meetingLocation, setMeetingLocation] = useState("Default");
+  const [googleCalendarConnected, setGoogleCalendarConnected] = useState(false);
+  const [googleCalendarEmail, setGoogleCalendarEmail] = useState<string | null>(null);
+  const [checkingGoogleConnection, setCheckingGoogleConnection] = useState(false);
+  const [creatingTestMeeting, setCreatingTestMeeting] = useState(false);
   const [durationMins, setDurationMins] = useState("30 min");
   const [preventBookingHours, setPreventBookingHours] = useState("12");
   const [maxAttendees, setMaxAttendees] = useState("1");
@@ -1047,6 +1156,8 @@ export default function AddProductClient({
   const courseBuilderVideoFileRef = useRef<HTMLInputElement>(null);
 
   const [productId, setProductId] = useState<string | null>(null);
+  /** From API after save/load — drives coaching vs course when titles overlap template defaults. */
+  const [persistedProductType, setPersistedProductType] = useState<string | null>(null);
   const [listingStatus, setListingStatus] = useState<"draft" | "published">("draft");
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
@@ -1056,6 +1167,96 @@ export default function AddProductClient({
 
   const token =
     typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+  const googleCoachId = (user.username || "").trim() || user.id;
+
+  /** Must be declared before hooks that reference it (avoids temporal dead zone). */
+  const isCoachingCheckout =
+    persistedProductType === "coaching" ||
+    (searchParams.get("kind") || "").toLowerCase() === "coaching" ||
+    /1:1\s*call/i.test(buttonText) ||
+    /coaching/i.test(subtitle);
+
+  const refreshGoogleConnectionStatus = useCallback(async () => {
+    if (typeof window === "undefined") return;
+    if (!isCoachingCheckout || meetingLocation !== "Google Meet") return;
+    setCheckingGoogleConnection(true);
+    try {
+      const res = await fetch(
+        `/api/integrations/google/status?coachId=${encodeURIComponent(googleCoachId)}`
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        connected?: boolean;
+        email?: string | null;
+      };
+      setGoogleCalendarConnected(Boolean(data.connected));
+      setGoogleCalendarEmail(typeof data.email === "string" ? data.email : null);
+    } catch {
+      setGoogleCalendarConnected(false);
+      setGoogleCalendarEmail(null);
+    } finally {
+      setCheckingGoogleConnection(false);
+    }
+  }, [googleCoachId, isCoachingCheckout, meetingLocation]);
+
+  const startGoogleConnect = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const returnTo = `${window.location.pathname}${window.location.search}`;
+    window.location.href = `/api/integrations/google/connect?coachId=${encodeURIComponent(
+      googleCoachId
+    )}&returnTo=${encodeURIComponent(returnTo)}`;
+  }, [googleCoachId]);
+
+  const createTestGoogleMeet = useCallback(async () => {
+    if (!googleCalendarConnected) return;
+    setCreatingTestMeeting(true);
+    try {
+      const now = new Date();
+      const start = new Date(now.getTime() + 10 * 60 * 1000);
+      const end = new Date(start.getTime() + 30 * 60 * 1000);
+      const clientEmail = (user.email || googleCalendarEmail || "").trim();
+      if (!clientEmail) {
+        setToast("No email found for test attendee.");
+        window.setTimeout(() => setToast(null), 6000);
+        return;
+      }
+      const res = await fetch("/api/bookings/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          coachId: googleCoachId,
+          clientName: user.full_name || user.username || "Test Client",
+          clientEmail,
+          startTime: start.toISOString(),
+          endTime: end.toISOString(),
+          sessionType: "Test Coaching Session",
+          meetingLocation: "GOOGLE_MEET",
+          description: "Auto-generated test booking from coaching availability page",
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        message?: string;
+        meetLink?: string | null;
+        emailSent?: boolean;
+        emailNote?: string;
+      };
+      if (!res.ok) throw new Error(data.message || "Could not create test meeting.");
+      const meetLine =
+        data.meetLink != null && String(data.meetLink).trim()
+          ? `Test meeting created. Meet link: ${data.meetLink}`
+          : "Test meeting created. Check your Google Calendar.";
+      const emailLine =
+        data.emailSent === false && typeof data.emailNote === "string" && data.emailNote.trim()
+          ? ` ${data.emailNote}`
+          : "";
+      setToast(meetLine + emailLine);
+      window.setTimeout(() => setToast(null), 12000);
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Could not create test meeting.");
+      window.setTimeout(() => setToast(null), 8000);
+    } finally {
+      setCreatingTestMeeting(false);
+    }
+  }, [googleCalendarConnected, googleCalendarEmail, googleCoachId, user.email, user.full_name, user.username]);
 
   useEffect(() => {
     if (!token) return;
@@ -1262,6 +1463,8 @@ export default function AddProductClient({
 
   const applyProduct = useCallback((p: ProductApi) => {
     setProductId(p.id);
+    const pt = typeof p.product_type === "string" ? p.product_type.trim() : "";
+    setPersistedProductType(pt || null);
     setListingStatus(p.status === "published" ? "published" : "draft");
     const tab = p.active_tab;
     setActiveTab(
@@ -1437,10 +1640,42 @@ export default function AddProductClient({
     };
   }, [searchParams, token, applyProduct]);
 
-  /* New product (no ?id=): reset form so “Add Product” doesn’t reuse old local state */
   useEffect(() => {
-    if (searchParams.get("id")) return;
-    const kind = (searchParams.get("kind") || "").toLowerCase();
+    if (!isCoachingCheckout || meetingLocation !== "Google Meet") return;
+    void refreshGoogleConnectionStatus();
+  }, [isCoachingCheckout, meetingLocation, refreshGoogleConnectionStatus]);
+
+  useEffect(() => {
+    if (!searchParams.get("google_connected")) return;
+    void refreshGoogleConnectionStatus();
+    const url = new URL(window.location.href);
+    url.searchParams.delete("google_connected");
+    router.replace(url.pathname + url.search, { scroll: false });
+  }, [searchParams, refreshGoogleConnectionStatus, router]);
+
+  useEffect(() => {
+    const err = searchParams.get("google_error");
+    if (!err) return;
+    setToast(
+      err === "oauth_not_configured"
+        ? "Google isn’t configured yet: add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to store-web/.env.local (see .env.local.example), add the redirect URI in Google Cloud Console, restart npm run dev, then try Connect again."
+        : "Google connection failed."
+    );
+    const dismiss = window.setTimeout(() => setToast(null), 14000);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("google_error");
+    router.replace(url.pathname + url.search, { scroll: false });
+    return () => window.clearTimeout(dismiss);
+  }, [searchParams, router]);
+
+  const newProductIdParam = searchParams.get("id");
+  const newProductKindParam = (searchParams.get("kind") || "").toLowerCase();
+
+  /* New product (no ?id=): reset form so “Add Product” doesn’t reuse old state.
+   * Deps are only id + kind so OAuth return (?google_connected=1) does not wipe the form. */
+  useEffect(() => {
+    if (newProductIdParam) return;
+    const kind = newProductKindParam;
     const isCoaching = kind === "coaching";
     const isCustom = kind === "custom";
     const isMembership = kind === "membership";
@@ -1450,6 +1685,7 @@ export default function AddProductClient({
     const isUrlMedia = kind === "url-media";
     const isAffiliate = kind === "affiliate";
     setProductId(null);
+    setPersistedProductType(null);
     setListingStatus("draft");
     setActiveTab("thumbnail");
     setStyle("callout");
@@ -1514,6 +1750,8 @@ export default function AddProductClient({
     setOptionsNote("");
     setTimeZone("IST - Kolkata, Calcutta | UTC +5.5");
     setMeetingLocation("Default");
+    setGoogleCalendarConnected(false);
+    setGoogleCalendarEmail(null);
     setDurationMins("30 min");
     setPreventBookingHours("12");
     setMaxAttendees("1");
@@ -1571,7 +1809,8 @@ export default function AddProductClient({
     setWebinarDatePickerIndex(null);
     setWebinarTimeOptionsOpenIndex(null);
     setUrlMediaLink("");
-    setAffiliateUrl(isAffiliate ? `http://join.stan.store/${handle}` : "");
+    const affiliateHandle = (user.username || "creator").trim();
+    setAffiliateUrl(isAffiliate ? `http://join.stan.store/${affiliateHandle}` : "");
     setDigitalDelivery("upload");
     setDigitalRedirectUrl("");
     setDigitalFileName(null);
@@ -1590,7 +1829,8 @@ export default function AddProductClient({
     } catch {
       /* ignore */
     }
-  }, [searchParams]);
+    /* Only id + kind — never user/handle hydration, or any async auth load will re-run this and reset to thumbnail. */
+  }, [newProductIdParam, newProductKindParam]);
 
   const buildBody = useCallback(
     (
@@ -1600,8 +1840,18 @@ export default function AddProductClient({
     ) => {
       const tabForSave = activeTabOverride ?? activeTab;
       const flows = emailFlowIdsOverride ?? emailFlowIds;
+      const resolvedType =
+        persistedProductType ||
+        inferProductTypeForSave({
+          kind: searchParams.get("kind") || "",
+          title,
+          subtitle,
+          buttonText,
+          activeTab: tabForSave,
+        });
       return {
       id: productId || undefined,
+      product_type: resolvedType,
       status: saveStatus,
       active_tab:
         tabForSave === "availability" || tabForSave === "webinar"
@@ -1665,9 +1915,11 @@ export default function AddProductClient({
       },
     };
   },
-  [
+    [
     productId,
+    persistedProductType,
     activeTab,
+    searchParams,
     style,
     title,
     subtitle,
@@ -1735,6 +1987,8 @@ export default function AddProductClient({
         const p = data.product as ProductApi;
         if (p?.id) {
           setProductId(p.id);
+          const savedPt = typeof p.product_type === "string" ? p.product_type.trim() : "";
+          if (savedPt) setPersistedProductType(savedPt);
           setListingStatus(p.status === "published" ? "published" : "draft");
           const url = new URL(window.location.href);
           url.searchParams.set("id", p.id);
@@ -2162,6 +2416,15 @@ export default function AddProductClient({
       bookWithinDays,
       activeAvailabilityDays,
     );
+    const ce = validateCoachingAvailabilityRules(
+      isCoachingCheckout,
+      meetingLocation,
+      preventBookingHours,
+      bookWithinDays,
+      activeAvailabilityDays,
+      googleCalendarConnected,
+    );
+    Object.assign(e, ce);
     if (publishHasErrors(e)) {
       setProductFormErrors((prev) => ({ ...prev, ...e }));
       setSaveMsg("Please fix the highlighted fields before continuing.");
@@ -2581,6 +2844,22 @@ export default function AddProductClient({
         activeAvailabilityDays,
       );
       Object.assign(e, ae);
+      const ce = validateCoachingAvailabilityRules(
+        isCoachingCheckout,
+        meetingLocation,
+        preventBookingHours,
+        bookWithinDays,
+        activeAvailabilityDays,
+        googleCalendarConnected,
+      );
+      Object.assign(e, ce);
+      const co = validateCoachingOptionsRules(
+        isCoachingCheckout,
+        reminderEnabled,
+        reminderBody,
+        reminderTimings,
+      );
+      Object.assign(e, co);
     }
     if (isCourseCheckout) {
       const ce = validateCourseTab(courseModules, lessonTitle, lessonDescription);
@@ -2654,19 +2933,19 @@ export default function AddProductClient({
   const listingImageUrl = thumbnailDataUrl;
   /** Checkout mobile preview: checkout hero, or listing thumb if none */
   const checkoutHeroPreviewUrl = checkoutImageDataUrl ?? thumbnailDataUrl;
-  const isCoachingCheckout =
-    (searchParams.get("kind") || "").toLowerCase() === "coaching" ||
-    /1:1\s*call/i.test(buttonText) ||
-    /coaching/i.test(subtitle);
   const isCustomCheckout =
     (searchParams.get("kind") || "").toLowerCase() === "custom" ||
     /submit your request/i.test(buttonText) ||
     /personalized video response/i.test(title);
+  const kindLowerForPublish = (searchParams.get("kind") || "").toLowerCase();
   const isCourseCheckout =
-    (searchParams.get("kind") || "").toLowerCase() === "course" ||
-    /get started with this amazing course/i.test(title) ||
-    /^get my course$/i.test(buttonText.trim()) ||
-    activeTab === "course";
+    persistedProductType === "course" ||
+    (persistedProductType !== "coaching" &&
+      (kindLowerForPublish === "course" ||
+        (kindLowerForPublish !== "coaching" &&
+          (/get started with this amazing course/i.test(title) ||
+            /^get my course$/i.test(buttonText.trim()) ||
+            activeTab === "course"))));
   const isMembershipFlow =
     (searchParams.get("kind") || "").toLowerCase() === "membership" ||
     /membership/i.test(title) ||
@@ -4610,7 +4889,15 @@ export default function AddProductClient({
             ) : null}
             <div className="mt-4 space-y-4">
               <div>
-                <label className="text-sm font-semibold text-slate-800">Meeting Location</label>
+                <div className="flex items-center gap-2">
+                  <label className="text-sm font-semibold text-slate-800">Meeting Location</label>
+                  <span
+                    className="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-slate-300 text-[10px] font-bold text-slate-500"
+                    title="A unique Google Meet link will be created for each booking automatically when Google Meet is selected and connected."
+                  >
+                    ?
+                  </span>
+                </div>
                 <select
                   value={meetingLocation}
                   onChange={(e) => {
@@ -4624,13 +4911,47 @@ export default function AddProductClient({
                       : "border-slate-200"
                   }`}
                 >
-                  <option>Google Meet</option>
-                  <option>Zoom Meeting</option>
-                  <option>Custom Location</option>
-                  <option>Default</option>
+                  <option value="Google Meet">🟢 Google Meet</option>
+                  <option value="Zoom Meeting">Zoom Meeting</option>
+                  <option value="Custom Location">Custom Location</option>
+                  <option value="Default">Default</option>
                 </select>
                 {productFormErrors.availabilityMeetingLocation ? (
                   <p className="mt-1 text-xs text-rose-600">{productFormErrors.availabilityMeetingLocation}</p>
+                ) : null}
+                {meetingLocation === "Google Meet" ? (
+                  googleCalendarConnected ? (
+                    <div className="mt-2 space-y-2">
+                      <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                        ✓ Google Calendar Connected — Meet links will be auto-generated
+                        {googleCalendarEmail ? <span className="font-normal text-emerald-600">({googleCalendarEmail})</span> : null}
+                      </div>
+                      <div>
+                        <button
+                          type="button"
+                          onClick={createTestGoogleMeet}
+                          disabled={creatingTestMeeting}
+                          className="rounded-md border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {creatingTestMeeting ? "Creating test event..." : "Create test Meet event"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-2 flex items-center justify-between gap-3 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-800">
+                      <span>
+                        Reconnect your Google Calendar to automatically send calendar invites
+                        {checkingGoogleConnection ? "..." : ""}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={startGoogleConnect}
+                        className="rounded-md bg-teal-600 px-2.5 py-1 font-semibold text-white hover:bg-teal-700"
+                      >
+                        Connect
+                      </button>
+                    </div>
+                  )
                 ) : null}
               </div>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -5547,7 +5868,7 @@ export default function AddProductClient({
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                disabled={saving || Boolean(toast)}
+                disabled={saving}
                 onClick={() => void handleSaveDraft()}
                 className="inline-flex items-center justify-center gap-2 border-2 bg-white px-6 py-3 text-sm font-bold transition disabled:opacity-50"
                 style={{ borderRadius: "8px", borderColor: PURPLE, color: PURPLE }}
@@ -5556,7 +5877,7 @@ export default function AddProductClient({
               </button>
               <button
                 type="button"
-                disabled={saving || Boolean(toast)}
+                disabled={saving}
                 onClick={() => void handlePublish()}
                 className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
                 style={{ backgroundColor: PURPLE }}
@@ -5579,7 +5900,7 @@ export default function AddProductClient({
         <div className="flex flex-wrap items-center justify-end gap-3">
           <button
             type="button"
-            disabled={saving || Boolean(toast)}
+            disabled={saving}
             onClick={() => void handleSaveDraft()}
             className="inline-flex items-center justify-center gap-2 border-2 bg-white px-6 py-3 text-sm font-bold transition disabled:opacity-50"
             style={{ borderRadius: "8px", borderColor: PURPLE, color: PURPLE }}
@@ -5593,7 +5914,7 @@ export default function AddProductClient({
           {activeTab === "checkout" ? (
             <button
               type="button"
-              disabled={saving || Boolean(toast)}
+              disabled={saving}
               onClick={isWebinarFlow ? goToWebinarTab : () => void handlePublish()}
               className={
                 isWebinarFlow
@@ -5608,7 +5929,7 @@ export default function AddProductClient({
           {activeTab === "course" ? (
             <button
               type="button"
-              disabled={saving || Boolean(toast)}
+              disabled={saving}
               onClick={() => void handlePublish()}
               className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
               style={{ backgroundColor: PURPLE }}
@@ -5619,7 +5940,7 @@ export default function AddProductClient({
           {activeTab === "webinar" ? (
             <button
               type="button"
-              disabled={saving || Boolean(toast)}
+              disabled={saving}
               onClick={() => void handlePublish()}
               className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
               style={{ backgroundColor: PURPLE }}
@@ -5630,7 +5951,7 @@ export default function AddProductClient({
           {activeTab === "options" ? (
             <button
               type="button"
-              disabled={saving || Boolean(toast)}
+              disabled={saving}
               onClick={() => void handlePublish()}
               className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
               style={{ backgroundColor: PURPLE }}
@@ -5641,7 +5962,7 @@ export default function AddProductClient({
           {activeTab === "availability" ? (
             <button
               type="button"
-              disabled={saving || Boolean(toast)}
+              disabled={saving}
               onClick={() => void handlePublish()}
               className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
               style={{ backgroundColor: PURPLE }}
@@ -5653,7 +5974,7 @@ export default function AddProductClient({
             isUrlMediaFlow || isAffiliateFlow ? (
               <button
                 type="button"
-                disabled={saving || Boolean(toast)}
+                disabled={saving}
                 onClick={() => void handlePublish()}
                 className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
                 style={{ backgroundColor: PURPLE }}
@@ -5663,7 +5984,7 @@ export default function AddProductClient({
             ) : (
               <button
                 type="button"
-                disabled={saving || Boolean(toast)}
+                disabled={saving}
                 onClick={goToCheckoutTab}
                 className="bg-blue-600 px-12 py-3 text-sm font-bold text-white transition hover:bg-blue-400 disabled:opacity-50"
                 style={{ borderRadius: "8px" }}

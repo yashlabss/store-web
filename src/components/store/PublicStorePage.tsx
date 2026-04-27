@@ -12,9 +12,16 @@ type CheckoutJson = {
   custom_fields?: string[];
 };
 
+type AvailabilityJson = {
+  meeting_location?: string;
+  duration_mins?: string | number;
+  prevent_booking_hours?: string | number;
+};
+
 type ProductOptionsJson = {
   collect_emails?: boolean;
   custom_fields?: Array<string | { label?: string; id?: string }>;
+  availability?: AvailabilityJson;
 };
 
 export type PublicProduct = {
@@ -64,6 +71,36 @@ function getProductCta(p: PublicProduct, fallback: string) {
   const buttonText = String(p.button_text || "").trim();
   if (buttonText) return buttonText;
   return fallback;
+}
+
+function isCoachingProduct(p: PublicProduct): boolean {
+  if (String(p.product_type || "").toLowerCase() === "coaching") return true;
+  if (/1:1\s*call/i.test(String(p.button_text || ""))) return true;
+  if (/coaching/i.test(String(p.subtitle || ""))) return true;
+  if (/1:1|book a 1:1|coaching session|private coaching/i.test(String(p.title || ""))) return true;
+  return false;
+}
+
+function mapMeetingLocationForBooking(value: string | undefined): "GOOGLE_MEET" | "ZOOM" | "CUSTOM" | "IN_PERSON" {
+  const normalized = String(value || "").toLowerCase();
+  if (normalized.includes("google")) return "GOOGLE_MEET";
+  if (normalized.includes("zoom")) return "ZOOM";
+  if (normalized.includes("custom")) return "CUSTOM";
+  return "IN_PERSON";
+}
+
+function getAutoBookingWindow(p: PublicProduct): { startTime: string; endTime: string } {
+  const availability = p.options_json?.availability || {};
+  const noticeHoursRaw = Number(availability.prevent_booking_hours);
+  const noticeHours = Number.isFinite(noticeHoursRaw) && noticeHoursRaw >= 0 ? noticeHoursRaw : 12;
+  const durationRaw =
+    typeof availability.duration_mins === "number"
+      ? availability.duration_mins
+      : Number(String(availability.duration_mins || "").replace(/[^\d]/g, ""));
+  const durationMins = Number.isFinite(durationRaw) && durationRaw > 0 ? durationRaw : 30;
+  const start = new Date(Date.now() + noticeHours * 60 * 60 * 1000);
+  const end = new Date(start.getTime() + durationMins * 60 * 1000);
+  return { startTime: start.toISOString(), endTime: end.toISOString() };
 }
 
 function ProfileAvatar({ label }: { label: string }) {
@@ -159,7 +196,8 @@ export default function PublicStorePage({ username }: { username: string }) {
     };
   }, []);
 
-  const purchase = async (productId: string) => {
+  const purchase = async (product: PublicProduct) => {
+    const productId = product.id;
     const token =
       typeof window === "undefined"
         ? ""
@@ -197,13 +235,54 @@ export default function PublicStorePage({ username }: { username: string }) {
               : "Purchase failed.";
         throw new Error(msg);
       }
+      let meetLink: string | null = null;
+      let bookingIssue: string | null = null;
+      if (isCoachingProduct(product)) {
+        const buyerEmail = String(buyer?.email || "").trim();
+        if (buyerEmail) {
+          const { startTime, endTime } = getAutoBookingWindow(product);
+          try {
+            const bookingRes = await fetch("/api/bookings/create", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                coachId: username,
+                clientName: buyer?.full_name?.trim() || buyerEmail.split("@")[0] || "Client",
+                clientEmail: buyerEmail,
+                startTime,
+                endTime,
+                sessionType: product.title || "Coaching Session",
+                meetingLocation: mapMeetingLocationForBooking(product.options_json?.availability?.meeting_location),
+                description: product.subtitle || "",
+              }),
+            });
+            const bookingJson = (await bookingRes.json().catch(() => ({}))) as {
+              message?: string;
+              meetLink?: string | null;
+            };
+            if (bookingRes.ok && bookingJson.meetLink) {
+              meetLink = bookingJson.meetLink;
+            } else if (!bookingRes.ok) {
+              bookingIssue =
+                (typeof bookingJson.message === "string" && bookingJson.message.trim()) ||
+                "Could not create the coaching meeting link.";
+            }
+          } catch {
+            bookingIssue = "Could not create the coaching meeting link.";
+          }
+        }
+      }
       const orderId = json?.order?.id as string | undefined;
       const deliveryToken = json?.token as string | undefined;
       if (orderId) {
         const base = `/${encodeURIComponent(username)}/thank-you?order=${encodeURIComponent(orderId)}`;
-        router.push(
-          deliveryToken ? `${base}&token=${encodeURIComponent(deliveryToken)}` : base
-        );
+        const withToken = deliveryToken ? `${base}&token=${encodeURIComponent(deliveryToken)}` : base;
+        const withMeet = meetLink ? `${withToken}&meet=${encodeURIComponent(meetLink)}` : withToken;
+        const finalUrl =
+          bookingIssue && !meetLink
+            ? `${withMeet}&booking_error=${encodeURIComponent(bookingIssue)}`
+            : withMeet;
+        router.push(finalUrl);
         return;
       }
       setToast("Purchase saved. Thank you!");
@@ -527,7 +606,7 @@ export default function PublicStorePage({ username }: { username: string }) {
                         <button
                           type="button"
                           disabled={busyId === p.id}
-                          onClick={() => void purchase(p.id)}
+                          onClick={() => void purchase(p)}
                           className="w-full rounded-full py-3 text-[18px] font-bold text-white transition hover:opacity-95 disabled:opacity-60"
                           style={{ backgroundColor: "#0a7a69" }}
                         >
