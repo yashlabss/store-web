@@ -566,6 +566,7 @@ function validateCoachingAvailabilityRules(
   bookWithinDays: string,
   activeAvailabilityDays: string[],
   googleCalendarConnected: boolean,
+  zoomConnected: boolean,
 ): ProductFormErrors {
   const e: ProductFormErrors = {};
   if (!isCoachingCheckout) return e;
@@ -587,6 +588,9 @@ function validateCoachingAvailabilityRules(
   }
   if (meetingLocation === "Google Meet" && !googleCalendarConnected) {
     e.availabilityMeetingLocation = "Connect Google Calendar to use Google Meet automatic links.";
+  }
+  if (meetingLocation === "Zoom Meeting" && !zoomConnected) {
+    e.availabilityMeetingLocation = "Connect Zoom to use automatic Zoom links.";
   }
   if (
     e.availabilityPreventHours ||
@@ -701,6 +705,126 @@ type UserRow = {
 type TabKey = "thumbnail" | "checkout" | "webinar" | "course" | "availability" | "options";
 type StyleKey = "button" | "callout" | "preview";
 type PaymentType = "one-time" | "subscription";
+const TIME_ZONE_OPTIONS = [
+  "PST - Los Angeles, San Diego, Vancouver | UTC -8",
+  "UMST - Creston, Dawson, Dawson Creek | UTC -7",
+  "MDT - Chihuahua, Mazatlan | UTC -6",
+  "MDT - Boise, Cambridge Bay, Denver | UTC -6",
+  "CAST - Belize, Costa Rica, El Salvador | UTC -6",
+  "CDT - Chicago, Matamoros, Menominee | UTC -5",
+  "CDT - Bahia Banderas, Cancun, Merida | UTC -5",
+  "CCST - Regina, Swift Current | UTC -6",
+  "SPST - Bogota, Cayman, Coral Harbour | UTC -5",
+  "EST - New York, Toronto, Havana, Lima, Bogota, Kingston, Quito | UTC -5",
+  "UEDT - Indianapolis | UTC -5",
+  "VST - Caracas | UTC -4.5",
+  "PYT - Asuncion | UTC -4",
+  "ADT - Glace Bay, Goose Bay, Halifax | UTC -3",
+  "CBST - Campo Grande, Cuiaba | UTC -4",
+  "SWST - Anguilla, Antigua, Aruba | UTC -4",
+  "PSST - Santiago, Palmer | UTC -4",
+  "NDT - St Johns | UTC -2.5",
+  "ESAST - Sao Paulo | UTC -3",
+  "AST - Buenos Aires, Catamarca, Cordoba | UTC -3",
+  "SEST - Araguaina, Belem, Cayenne | UTC -3",
+  "GDT - Godthab | UTC -3",
+  "MST - Montevideo | UTC -3",
+  "BST - Bahia | UTC -3",
+  "U - Noronha, South Georgia | UTC -2",
+  "ADT - Scoresbysund, Azores | UTC 0",
+  "CVST - Cape Verde | UTC -1",
+  "MDT - Casablanca, El Aaiun | UTC +1",
+  "UTC - Danmarkshavn | UTC 0",
+  "GMT - Isle of Man, Guernsey, Jersey, London | UTC 0",
+  "BST - Isle of Man, Guernsey, Jersey, London | UTC +1",
+  "GDT - Canary, Faeroe, Madeira | UTC +1",
+  "GST - Abidjan, Accra, Bamako | UTC 0",
+  "WEDT - Longyearbyen, Amsterdam, Andorra | UTC +2",
+  "CEDT - Belgrade, Bratislava, Budapest | UTC +2",
+  "RDT - Ceuta, Brussels, Copenhagen | UTC +2",
+  "CEDT - Sarajevo, Skopje, Warsaw, Zagreb | UTC +2",
+  "WCAST - Algiers, Bangui, Brazzaville | UTC +1",
+  "NST - Windhoek | UTC +1",
+  "GDT - Nicosia, Athens, Bucharest, Chisinau | UTC +3",
+  "MEDT - Beirut | UTC +3",
+  "EST - Cairo | UTC +2",
+  "SDT - Damascus | UTC +3",
+  "EEDT - Nicosia, Athens, Bucharest | UTC +3",
+  "SAST - Blantyre, Bujumbura, Gaborone | UTC +2",
+  "FDT - Helsinki, Kiev, Mariehamn | UTC +3",
+  "TDT - Istanbul | UTC +3",
+  "JDT - Jerusalem | UTC +3",
+  "LST - Tripoli | UTC +2",
+  "JST - Amman | UTC +3",
+  "AST - Baghdad | UTC +3",
+  "KST - Kaliningrad | UTC +3",
+  "AST - Aden, Bahrain, Kuwait | UTC +3",
+  "EAST - Addis Ababa, Asmera, Dar es Salaam | UTC +3",
+  "MSK - Kirov, Moscow, Simferopol | UTC +3",
+  "SAMT - Astrakhan, Samara, Ulyanovsk | UTC +4",
+  "IDT - Tehran | UTC +4.5",
+  "AST - Dubai, Muscat | UTC +4",
+  "ADT - Baku | UTC +5",
+  "MST - Mahe, Mauritius, Reunion | UTC +4",
+  "GET - Tbilisi | UTC +4",
+  "CST - Yerevan | UTC +4",
+  "AST - Kabul | UTC +4.5",
+  "WAST - Mawson, Aqtau, Aqtobe | UTC +5",
+  "YEKT - Yekaterinburg | UTC +5",
+  "PKT - Karachi | UTC +5",
+  "IST - Kolkata, Calcutta | UTC +5.5",
+  "SLST - Colombo | UTC +5.5",
+  "NST - Kathmandu | UTC +5.75",
+  "CAST - Vostok, Almaty, Bishkek | UTC +6",
+  "BST - Dhaka, Thimphu | UTC +6",
+  "MST - Rangoon, Cocos | UTC +6.5",
+  "SAST - Davis, Bangkok, Hovd | UTC +7",
+  "NCAST - Novokuznetsk, Novosibirsk, Omsk | UTC +7",
+  "CST - Hong Kong, Macau, Shanghai | UTC +8",
+  "NAST - Krasnoyarsk | UTC +8",
+  "MPST - Brunei, Kuala Lumpur, Kuching | UTC +8",
+  "WAST - Casey, Perth | UTC +8",
+  "TST - Taipei | UTC +8",
+  "UST - Choibalsan, Ulaanbaatar | UTC +8",
+  "NAEST - Irkutsk | UTC +8",
+  "JST - Dili, Jayapura, Tokyo, Palau | UTC +9",
+  "KST - Pyongyang, Seoul | UTC +9",
+  "CAST - Adelaide, Broken Hill | UTC +9.5",
+  "ACST - Darwin | UTC +9.5",
+  "EAST - Brisbane, Lindeman | UTC +10",
+  "AEST - Melbourne, Sydney | UTC +10",
+  "WPST - DumontDUrville, Guam, Port Moresby | UTC +10",
+  "TST - Currie, Hobart | UTC +10",
+  "YST - Chita, Khandyga, Yakutsk | UTC +9",
+  "CPST - Macquarie, Efate, Guadalcanal | UTC +11",
+  "VST - Sakhalin, Ust-Nera, Vladivostok | UTC +11",
+  "NZST - McMurdo, Auckland | UTC +12",
+  "U - Funafuti, Kwajalein, Majuro | UTC +12",
+  "FST - Fiji | UTC +12",
+  "MST - Anadyr, Kamchatka, Magadan, Srednekolymsk | UTC +12",
+  "KDT - Kamchatka | UTC +13",
+  "TST - Enderbury, Fakaofo, Tongatapu | UTC +13",
+  "SST - Apia | UTC +13",
+  "DST - International Date Line West | UTC -12",
+  "U - Midway, Niue, Pago Pago | UTC -11",
+  "HST - Honolulu, Johnston, Rarotonga, Tahiti | UTC -10",
+  "AKDT - Anchorage, Juneau, Nome | UTC -8",
+  "PDT - Santa Isabel | UTC -7",
+] as const;
+
+function parseUtcOffsetHours(option: string): number {
+  const m = option.match(/\|\s*UTC\s*([+-])?\s*(\d+(?:\.\d+)?)/i);
+  if (!m) return 0;
+  const sign = m[1] === "-" ? -1 : 1;
+  const num = Number(m[2]);
+  return Number.isFinite(num) ? sign * num : 0;
+}
+
+const SORTED_TIME_ZONE_OPTIONS = Array.from(new Set(TIME_ZONE_OPTIONS)).sort((a, b) => {
+  const offsetDiff = parseUtcOffsetHours(a) - parseUtcOffsetHours(b);
+  if (offsetDiff !== 0) return offsetDiff;
+  return a.localeCompare(b);
+});
 type WebinarSlot = {
   dateIso: string;
   time: string;
@@ -1045,6 +1169,10 @@ export default function AddProductClient({
   const [googleCalendarEmail, setGoogleCalendarEmail] = useState<string | null>(null);
   const [checkingGoogleConnection, setCheckingGoogleConnection] = useState(false);
   const [creatingTestMeeting, setCreatingTestMeeting] = useState(false);
+  const [zoomConnected, setZoomConnected] = useState(false);
+  const [zoomEmail, setZoomEmail] = useState<string | null>(null);
+  const [checkingZoomConnection, setCheckingZoomConnection] = useState(false);
+  const [creatingZoomTestMeeting, setCreatingZoomTestMeeting] = useState(false);
   const [durationMins, setDurationMins] = useState("30 min");
   const [preventBookingHours, setPreventBookingHours] = useState("12");
   const [maxAttendees, setMaxAttendees] = useState("1");
@@ -1165,6 +1293,7 @@ export default function AddProductClient({
   const [loadError, setLoadError] = useState("");
   const [productFormErrors, setProductFormErrors] = useState<ProductFormErrors>({});
 
+
   const token =
     typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
   const googleCoachId = (user.username || "").trim() || user.id;
@@ -1200,11 +1329,13 @@ export default function AddProductClient({
 
   const startGoogleConnect = useCallback(() => {
     if (typeof window === "undefined") return;
-    const returnTo = `${window.location.pathname}${window.location.search}`;
+    const returnUrl = new URL(window.location.href);
+    returnUrl.searchParams.set("return_tab", activeTab);
+    const returnTo = `${returnUrl.pathname}${returnUrl.search}`;
     window.location.href = `/api/integrations/google/connect?coachId=${encodeURIComponent(
       googleCoachId
     )}&returnTo=${encodeURIComponent(returnTo)}`;
-  }, [googleCoachId]);
+  }, [activeTab, googleCoachId]);
 
   const createTestGoogleMeet = useCallback(async () => {
     if (!googleCalendarConnected) return;
@@ -1257,6 +1388,90 @@ export default function AddProductClient({
       setCreatingTestMeeting(false);
     }
   }, [googleCalendarConnected, googleCalendarEmail, googleCoachId, user.email, user.full_name, user.username]);
+
+  const refreshZoomConnectionStatus = useCallback(async () => {
+    if (typeof window === "undefined") return;
+    if (!isCoachingCheckout || meetingLocation !== "Zoom Meeting") return;
+    setCheckingZoomConnection(true);
+    try {
+      const res = await fetch(
+        `/api/auth/zoom/status?coachId=${encodeURIComponent(googleCoachId)}`
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        connected?: boolean;
+        email?: string | null;
+      };
+      setZoomConnected(Boolean(data.connected));
+      setZoomEmail(typeof data.email === "string" ? data.email : null);
+    } catch {
+      setZoomConnected(false);
+      setZoomEmail(null);
+    } finally {
+      setCheckingZoomConnection(false);
+    }
+  }, [googleCoachId, isCoachingCheckout, meetingLocation]);
+
+  const startZoomConnect = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const returnUrl = new URL(window.location.href);
+    returnUrl.searchParams.set("return_tab", activeTab);
+    const returnTo = `${returnUrl.pathname}${returnUrl.search}`;
+    window.location.href = `/api/auth/zoom?coachId=${encodeURIComponent(
+      googleCoachId
+    )}&returnTo=${encodeURIComponent(returnTo)}`;
+  }, [activeTab, googleCoachId]);
+
+  const createTestZoomMeeting = useCallback(async () => {
+    if (!zoomConnected) return;
+    setCreatingZoomTestMeeting(true);
+    try {
+      const now = new Date();
+      const start = new Date(now.getTime() + 10 * 60 * 1000);
+      const end = new Date(start.getTime() + 30 * 60 * 1000);
+      const clientEmail = (user.email || zoomEmail || "").trim();
+      if (!clientEmail) {
+        setToast("No email found for test attendee.");
+        window.setTimeout(() => setToast(null), 6000);
+        return;
+      }
+      const res = await fetch("/api/bookings/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          coachId: googleCoachId,
+          clientName: user.full_name || user.username || "Test Client",
+          clientEmail,
+          startTime: start.toISOString(),
+          endTime: end.toISOString(),
+          sessionType: "Test Coaching Session",
+          meetingLocation: "ZOOM",
+          description: "Auto-generated test booking from coaching availability page",
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        message?: string;
+        meetLink?: string | null;
+        emailSent?: boolean;
+        emailNote?: string;
+      };
+      if (!res.ok) throw new Error(data.message || "Could not create test Zoom meeting.");
+      const line =
+        data.meetLink != null && String(data.meetLink).trim()
+          ? `Test Zoom meeting created. Join link: ${data.meetLink}`
+          : "Test Zoom meeting created. Check your Zoom account.";
+      const emailLine =
+        data.emailSent === false && typeof data.emailNote === "string" && data.emailNote.trim()
+          ? ` ${data.emailNote}`
+          : "";
+      setToast(line + emailLine);
+      window.setTimeout(() => setToast(null), 12000);
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Could not create test Zoom meeting.");
+      window.setTimeout(() => setToast(null), 8000);
+    } finally {
+      setCreatingZoomTestMeeting(false);
+    }
+  }, [zoomConnected, zoomEmail, googleCoachId, user.email, user.full_name, user.username]);
 
   useEffect(() => {
     if (!token) return;
@@ -1472,6 +1687,7 @@ export default function AddProductClient({
         tab === "checkout" ||
         tab === "webinar" ||
         tab === "course" ||
+        tab === "availability" ||
         tab === "options"
         ? tab
         : "thumbnail"
@@ -1646,10 +1862,27 @@ export default function AddProductClient({
   }, [isCoachingCheckout, meetingLocation, refreshGoogleConnectionStatus]);
 
   useEffect(() => {
+    if (!isCoachingCheckout || meetingLocation !== "Zoom Meeting") return;
+    void refreshZoomConnectionStatus();
+  }, [isCoachingCheckout, meetingLocation, refreshZoomConnectionStatus]);
+
+  useEffect(() => {
     if (!searchParams.get("google_connected")) return;
     void refreshGoogleConnectionStatus();
+    const returnTab = searchParams.get("return_tab");
+    if (
+      returnTab === "thumbnail" ||
+      returnTab === "checkout" ||
+      returnTab === "webinar" ||
+      returnTab === "course" ||
+      returnTab === "availability" ||
+      returnTab === "options"
+    ) {
+      setActiveTab(returnTab);
+    }
     const url = new URL(window.location.href);
     url.searchParams.delete("google_connected");
+    url.searchParams.delete("return_tab");
     router.replace(url.pathname + url.search, { scroll: false });
   }, [searchParams, refreshGoogleConnectionStatus, router]);
 
@@ -1664,6 +1897,41 @@ export default function AddProductClient({
     const dismiss = window.setTimeout(() => setToast(null), 14000);
     const url = new URL(window.location.href);
     url.searchParams.delete("google_error");
+    router.replace(url.pathname + url.search, { scroll: false });
+    return () => window.clearTimeout(dismiss);
+  }, [searchParams, router]);
+
+  useEffect(() => {
+    if (!searchParams.get("zoom_connected")) return;
+    void refreshZoomConnectionStatus();
+    const returnTab = searchParams.get("return_tab");
+    if (
+      returnTab === "thumbnail" ||
+      returnTab === "checkout" ||
+      returnTab === "webinar" ||
+      returnTab === "course" ||
+      returnTab === "availability" ||
+      returnTab === "options"
+    ) {
+      setActiveTab(returnTab);
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.delete("zoom_connected");
+    url.searchParams.delete("return_tab");
+    router.replace(url.pathname + url.search, { scroll: false });
+  }, [searchParams, refreshZoomConnectionStatus, router]);
+
+  useEffect(() => {
+    const err = searchParams.get("zoom_error");
+    if (!err) return;
+    setToast(
+      err === "oauth_not_configured"
+        ? "Zoom isn’t configured yet: add ZOOM_CLIENT_ID and ZOOM_CLIENT_SECRET to store-web/.env.local, set redirect URI to /api/auth/zoom/callback, restart npm run dev, then try Connect again."
+        : "Zoom connection failed."
+    );
+    const dismiss = window.setTimeout(() => setToast(null), 14000);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("zoom_error");
     router.replace(url.pathname + url.search, { scroll: false });
     return () => window.clearTimeout(dismiss);
   }, [searchParams, router]);
@@ -1752,6 +2020,8 @@ export default function AddProductClient({
     setMeetingLocation("Default");
     setGoogleCalendarConnected(false);
     setGoogleCalendarEmail(null);
+    setZoomConnected(false);
+    setZoomEmail(null);
     setDurationMins("30 min");
     setPreventBookingHours("12");
     setMaxAttendees("1");
@@ -2423,6 +2693,7 @@ export default function AddProductClient({
       bookWithinDays,
       activeAvailabilityDays,
       googleCalendarConnected,
+      zoomConnected,
     );
     Object.assign(e, ce);
     if (publishHasErrors(e)) {
@@ -2435,6 +2706,22 @@ export default function AddProductClient({
     setSaveMsg("");
     setActiveTab("options");
     saveDraftBeforeNext("options");
+  };
+
+  const goNextFromCheckout = () => {
+    if (isWebinarFlow) {
+      goToWebinarTab();
+      return;
+    }
+    if (isCoachingCheckout) {
+      goToAvailabilityTab();
+      return;
+    }
+    if (isCourseCheckout && !isWebinarFlow && !isCoachingCheckout && !isCustomCheckout) {
+      goToCourseTab();
+      return;
+    }
+    goToOptionsTab();
   };
 
   const validateDigitalThumbnailForNavigation = () => {
@@ -2851,6 +3138,7 @@ export default function AddProductClient({
         bookWithinDays,
         activeAvailabilityDays,
         googleCalendarConnected,
+        zoomConnected,
       );
       Object.assign(e, ce);
       const co = validateCoachingOptionsRules(
@@ -4893,7 +5181,7 @@ export default function AddProductClient({
                   <label className="text-sm font-semibold text-slate-800">Meeting Location</label>
                   <span
                     className="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-slate-300 text-[10px] font-bold text-slate-500"
-                    title="A unique Google Meet link will be created for each booking automatically when Google Meet is selected and connected."
+                    title="A unique Google Meet or Zoom link will be auto-created when the selected provider is connected."
                   >
                     ?
                   </span>
@@ -4953,11 +5241,45 @@ export default function AddProductClient({
                     </div>
                   )
                 ) : null}
+                {meetingLocation === "Zoom Meeting" ? (
+                  zoomConnected ? (
+                    <div className="mt-2 space-y-2">
+                      <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                        ✓ Zoom Connected — Zoom links will be auto-generated
+                        {zoomEmail ? <span className="font-normal text-emerald-600">({zoomEmail})</span> : null}
+                      </div>
+                      <div>
+                        <button
+                          type="button"
+                          onClick={createTestZoomMeeting}
+                          disabled={creatingZoomTestMeeting}
+                          className="rounded-md border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {creatingZoomTestMeeting ? "Creating test event..." : "Create test Zoom event"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-2 flex items-center justify-between gap-3 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-800">
+                      <span>
+                        Connect Zoom to automatically create meeting links
+                        {checkingZoomConnection ? "..." : ""}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={startZoomConnect}
+                        className="rounded-md bg-teal-600 px-2.5 py-1 font-semibold text-white hover:bg-teal-700"
+                      >
+                        Connect
+                      </button>
+                    </div>
+                  )
+                ) : null}
               </div>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
                   <label className="text-sm font-semibold text-slate-800">Time Zone</label>
-                  <input
+                  <select
                     value={timeZone}
                     onChange={(e) => {
                       setTimeZone(e.target.value);
@@ -4967,7 +5289,13 @@ export default function AddProductClient({
                     className={`mt-1 w-full rounded-xl border px-4 py-3 text-sm outline-none ${
                       productFormErrors.availabilityTimeZone ? "border-rose-500 ring-1 ring-rose-100" : "border-slate-200"
                     }`}
-                  />
+                  >
+                    {SORTED_TIME_ZONE_OPTIONS.map((option, idx) => (
+                      <option key={`${option}-${idx}`} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
                   {productFormErrors.availabilityTimeZone ? <p className="mt-1 text-xs text-rose-600">{productFormErrors.availabilityTimeZone}</p> : null}
                 </div>
                 <div>
@@ -4987,6 +5315,14 @@ export default function AddProductClient({
                     <option>30 min</option>
                     <option>45 min</option>
                     <option>60 min</option>
+                    <option>90 min</option>
+                    <option>120 min</option>
+                    <option>150 min</option>
+                    <option>180 min</option>
+                    <option>210 min</option>
+                    <option>240 min</option>
+                    <option>360 min</option>
+                    <option>480 min</option>
                   </select>
                 </div>
               </div>
@@ -5915,15 +6251,11 @@ export default function AddProductClient({
             <button
               type="button"
               disabled={saving}
-              onClick={isWebinarFlow ? goToWebinarTab : () => void handlePublish()}
-              className={
-                isWebinarFlow
-                  ? "rounded-full border-2 border-slate-200 bg-white px-6 py-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50 disabled:opacity-50"
-                  : "inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
-              }
-              style={isWebinarFlow ? undefined : { backgroundColor: PURPLE }}
+              onClick={goNextFromCheckout}
+              className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
+              style={{ backgroundColor: PURPLE }}
             >
-              {isWebinarFlow ? "Next" : "Publish"}
+              Next
             </button>
           ) : null}
           {activeTab === "course" ? (

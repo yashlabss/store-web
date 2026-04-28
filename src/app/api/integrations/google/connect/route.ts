@@ -1,5 +1,6 @@
 import { google } from "googleapis";
 import { NextRequest, NextResponse } from "next/server";
+import { getGoogleTokens, hasValidGoogleCredentialTokens } from "../../../../../lib/server/googleTokenStore";
 
 export async function GET(req: NextRequest) {
   const coachId = req.nextUrl.searchParams.get("coachId");
@@ -30,14 +31,21 @@ export async function GET(req: NextRequest) {
   }
 
   const auth = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+  const existingTokens = getGoogleTokens(coachId);
+  const needsFreshConsent = !hasValidGoogleCredentialTokens(existingTokens);
 
   const url = auth.generateAuthUrl({
     access_type: "offline",
-    /** Omit forced consent — `prompt: "consent"` re-ran the full unverified-app flow on every click. */
+    /**
+     * Ask full consent only when we don't have a usable refresh token yet.
+     * This avoids repeatedly showing the "unverified app" warning on every reconnect.
+     */
+    ...(needsFreshConsent ? { prompt: "consent" as const } : {}),
     scope: [
       "https://www.googleapis.com/auth/calendar",
       "https://www.googleapis.com/auth/calendar.events",
     ],
+    include_granted_scopes: true,
     state: JSON.stringify({ coachId, returnTo }),
   });
 
