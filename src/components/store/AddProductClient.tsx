@@ -665,6 +665,7 @@ type CheckoutJsonShape = {
 type ProductApi = {
   id: string;
   status?: string;
+  product_type?: string;
   active_tab: TabKey;
   style: StyleKey;
   title: string;
@@ -952,7 +953,10 @@ export default function AddProductClient({
     "Friday",
   ]);
   const [blockDatesOpen, setBlockDatesOpen] = useState(false);
-  const [blockMonth, setBlockMonth] = useState<Date>(new Date(2026, 3, 1));
+  const [blockMonth, setBlockMonth] = useState<Date>(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
   const [selectedBlockDate, setSelectedBlockDate] = useState<string>("2026-04-24");
   const [blockTimeOpen, setBlockTimeOpen] = useState(false);
   const [blockFromDate, setBlockFromDate] = useState("Apr 24, 2026");
@@ -1051,6 +1055,8 @@ export default function AddProductClient({
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
   const [toast, setToast] = useState<string | null>(null);
+  const [webinarBackfillRunning, setWebinarBackfillRunning] = useState(false);
+  const [webinarBackfillMsg, setWebinarBackfillMsg] = useState("");
   const [loadError, setLoadError] = useState("");
   const [productFormErrors, setProductFormErrors] = useState<ProductFormErrors>({});
 
@@ -1263,7 +1269,17 @@ export default function AddProductClient({
   const applyProduct = useCallback((p: ProductApi) => {
     setProductId(p.id);
     setListingStatus(p.status === "published" ? "published" : "draft");
-    const tab = p.active_tab;
+    const optionsObj =
+      p.options_json && typeof p.options_json === "object"
+        ? (p.options_json as Record<string, unknown>)
+        : {};
+    const hasWebinarConfig =
+      Boolean(optionsObj.webinar) && typeof optionsObj.webinar === "object";
+    const tab =
+      (p.product_type === "webinar" || hasWebinarConfig) &&
+      p.active_tab === "checkout"
+        ? "webinar"
+        : p.active_tab;
     setActiveTab(
       tab === "thumbnail" ||
         tab === "checkout" ||
@@ -1334,6 +1350,26 @@ export default function AddProductClient({
     }
     const oj = p.options_json as {
       note?: string;
+      availability?: {
+        meeting_location?: string;
+        time_zone?: string;
+        duration_mins?: string;
+        prevent_booking_hours?: string;
+        max_attendees?: string;
+        before_meeting_enabled?: boolean;
+        after_meeting_enabled?: boolean;
+        before_meeting_mins?: string;
+        after_meeting_mins?: string;
+        book_within_days?: string;
+        days?: string[];
+      };
+      webinar?: {
+        slots?: { dateIso?: string; time?: string }[];
+        time_zone?: string;
+        duration_mins?: string;
+        meeting_location?: string;
+        max_attendees?: string;
+      };
       attached_file_name?: string;
       confirmation_email?: { subject?: string; body?: string };
       reminder_email?: {
@@ -1352,6 +1388,76 @@ export default function AddProductClient({
       }[];
     };
     if (typeof oj?.note === "string") setOptionsNote(oj.note);
+    if (oj?.availability && typeof oj.availability === "object") {
+      const availability = oj.availability;
+      if (typeof availability.meeting_location === "string") {
+        setMeetingLocation(availability.meeting_location);
+      }
+      if (typeof availability.time_zone === "string") {
+        setTimeZone(availability.time_zone);
+      }
+      if (typeof availability.duration_mins === "string") {
+        setDurationMins(availability.duration_mins);
+      }
+      if (typeof availability.prevent_booking_hours === "string") {
+        setPreventBookingHours(availability.prevent_booking_hours);
+      }
+      if (typeof availability.max_attendees === "string") {
+        setMaxAttendees(availability.max_attendees);
+      }
+      if (typeof availability.before_meeting_enabled === "boolean") {
+        setBeforeMeetingEnabled(availability.before_meeting_enabled);
+      }
+      if (typeof availability.after_meeting_enabled === "boolean") {
+        setAfterMeetingEnabled(availability.after_meeting_enabled);
+      }
+      if (typeof availability.before_meeting_mins === "string") {
+        setBeforeMeetingMins(availability.before_meeting_mins);
+      }
+      if (typeof availability.after_meeting_mins === "string") {
+        setAfterMeetingMins(availability.after_meeting_mins);
+      }
+      if (typeof availability.book_within_days === "string") {
+        setBookWithinDays(availability.book_within_days);
+      }
+      if (
+        Array.isArray(availability.days) &&
+        availability.days.every((d) => typeof d === "string")
+      ) {
+        setActiveAvailabilityDays(availability.days);
+      }
+    }
+    if (oj?.webinar && typeof oj.webinar === "object") {
+      const webinar = oj.webinar;
+      if (Array.isArray(webinar.slots)) {
+        const parsedSlots = webinar.slots
+          .filter(
+            (slot) =>
+              slot &&
+              typeof slot === "object" &&
+              typeof slot.dateIso === "string" &&
+              typeof slot.time === "string"
+          )
+          .map((slot) => ({ dateIso: slot.dateIso as string, time: slot.time as string }));
+        setWebinarSlots(parsedSlots);
+      } else {
+        setWebinarSlots([]);
+      }
+      if (typeof webinar.meeting_location === "string") {
+        setMeetingLocation(webinar.meeting_location);
+      }
+      if (typeof webinar.time_zone === "string") {
+        setTimeZone(webinar.time_zone);
+      }
+      if (typeof webinar.duration_mins === "string") {
+        setDurationMins(webinar.duration_mins);
+      }
+      if (typeof webinar.max_attendees === "string") {
+        setMaxAttendees(webinar.max_attendees);
+      }
+    } else if (p.product_type === "webinar") {
+      setWebinarSlots([]);
+    }
     if (typeof oj?.attached_file_name === "string") setFileLabel(oj.attached_file_name);
     const ce = oj?.confirmation_email;
     if (ce && typeof ce.subject === "string") setConfirmationSubject(ce.subject);
@@ -1368,19 +1474,22 @@ export default function AddProductClient({
     if (Array.isArray(re?.timings)) {
       const parsedTimings = re.timings
         .filter((t) => t && typeof t === "object")
-        .map((t, idx) => ({
-          id:
-            typeof t.id === "string" && t.id
-              ? t.id
-              : typeof crypto !== "undefined" && "randomUUID" in crypto
-                ? crypto.randomUUID()
-                : `rem-${idx}-${Date.now()}`,
-          amount: String(t.amount ?? ""),
-          unit:
+        .map((t, idx): ReminderTiming => {
+          const normalizedUnit: ReminderTiming["unit"] =
             t.unit === "minute(s) before" || t.unit === "day(s) before"
               ? t.unit
-              : "hour(s) before",
-        }));
+              : "hour(s) before";
+          return {
+            id:
+              typeof t.id === "string" && t.id
+                ? t.id
+                : typeof crypto !== "undefined" && "randomUUID" in crypto
+                  ? crypto.randomUUID()
+                  : `rem-${idx}-${Date.now()}`,
+            amount: String(t.amount ?? ""),
+            unit: normalizedUnit,
+          };
+        });
       setReminderTimings(parsedTimings.length ? parsedTimings : DEFAULT_REMINDER_TIMINGS);
     } else {
       setReminderTimings(DEFAULT_REMINDER_TIMINGS);
@@ -1457,7 +1566,7 @@ export default function AddProductClient({
       isCoaching
         ? "Book a 1:1 Call with Me"
         : isWebinar
-          ? "Join Me at the Webinar"
+          ? ""
         : isCourse
           ? "Get started with this amazing course"
         : isCommunity
@@ -1600,8 +1709,10 @@ export default function AddProductClient({
     ) => {
       const tabForSave = activeTabOverride ?? activeTab;
       const flows = emailFlowIdsOverride ?? emailFlowIds;
+      const webinarMode = (searchParams.get("kind") || "").toLowerCase() === "webinar";
       return {
       id: productId || undefined,
+      product_type: webinarMode ? "webinar" : undefined,
       status: saveStatus,
       active_tab:
         tabForSave === "availability" || tabForSave === "webinar"
@@ -1643,6 +1754,17 @@ export default function AddProductClient({
           book_within_days: bookWithinDays,
           days: activeAvailabilityDays,
         },
+        ...(webinarMode
+          ? {
+              webinar: {
+                slots: webinarSlots,
+                meeting_location: meetingLocation,
+                time_zone: timeZone,
+                duration_mins: durationMins,
+                max_attendees: maxAttendees,
+              },
+            }
+          : {}),
         ...(fileLabel ? { attached_file_name: fileLabel } : {}),
         confirmation_email: {
           subject: confirmationSubject.slice(0, CONFIRMATION_SUBJECT_MAX),
@@ -1690,6 +1812,7 @@ export default function AddProductClient({
     afterMeetingMins,
     bookWithinDays,
     activeAvailabilityDays,
+    webinarSlots,
     fileLabel,
     confirmationSubject,
     confirmationBody,
@@ -1709,6 +1832,7 @@ export default function AddProductClient({
     digitalFileName,
     digitalFileDataUrl,
     customCheckoutFields,
+    searchParams,
   ]);
 
   const saveToApi = useCallback(
@@ -1750,6 +1874,58 @@ export default function AddProductClient({
     },
     [token, buildBody, router]
   );
+
+  const generateWebinarLinksAndNotify = useCallback(async () => {
+    if (!token) {
+      setSaveMsg("Please log in again.");
+      return;
+    }
+    if (!productId) {
+      setSaveMsg("Save this webinar product first, then generate links.");
+      return;
+    }
+    setWebinarBackfillRunning(true);
+    setWebinarBackfillMsg("");
+    try {
+      const res = await fetch(`${API_PRODUCTS_BASE}/${productId}/webinar/backfill-links`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          force_regenerate: false,
+          resend_existing: true,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        message?: string;
+        result?: {
+          total?: number;
+          links_generated?: number;
+          links_existing?: number;
+          buyer_emails_sent?: number;
+          buyer_whatsapp_accepted?: number;
+          owner_email_sent?: number;
+          errors?: Array<unknown>;
+        };
+      };
+      if (!res.ok || !data.ok || !data.result) {
+        throw new Error(data.message || "Could not generate webinar links.");
+      }
+      const r = data.result;
+      setWebinarBackfillMsg(
+        `Processed ${r.total || 0} registrations. Generated ${r.links_generated || 0} new links, sent ${r.buyer_emails_sent || 0} buyer emails, ${r.buyer_whatsapp_accepted || 0} buyer WhatsApp messages, owner email ${r.owner_email_sent ? "sent" : "not sent"}.`
+      );
+    } catch (e) {
+      setWebinarBackfillMsg(
+        e instanceof Error ? e.message : "Could not generate webinar links."
+      );
+    } finally {
+      setWebinarBackfillRunning(false);
+    }
+  }, [token, productId]);
 
   const readImageFileAsDataUrl = (file: File): Promise<string | null> =>
     new Promise((resolve) => {
@@ -2713,7 +2889,7 @@ export default function AddProductClient({
   const monthStart = new Date(blockMonth.getFullYear(), blockMonth.getMonth(), 1);
   const gridStart = new Date(monthStart);
   gridStart.setDate(1 - monthStart.getDay());
-  const monthCells = Array.from({ length: 35 }, (_, i) => {
+  const monthCells = Array.from({ length: 42 }, (_, i) => {
     const d = new Date(gridStart);
     d.setDate(gridStart.getDate() + i);
     const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -2736,6 +2912,10 @@ export default function AddProductClient({
     setBlockToast("Success Time has been blocked off successfully.");
     window.setTimeout(() => setBlockToast(null), 2800);
   };
+  const toIsoDate = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+      d.getDate()
+    ).padStart(2, "0")}`;
   const webinarTimeOptions = [
     "1:00 PM",
     "1:15 PM",
@@ -3100,7 +3280,7 @@ export default function AddProductClient({
                       (isCustomThumbnail || isMembershipFlow || isAffiliateFlow) &&
                       opt.key === "preview"
                     )
-                ) as const
+                )
               ).map((opt) => (
                 <button
                   key={opt.key}
@@ -3440,14 +3620,15 @@ export default function AddProductClient({
                 id="desc-title"
                 value={title}
                 maxLength={TITLE_MAX}
-                disabled
                 onChange={(e) => {
                   setTitle(e.target.value);
                   setProductFormErrors((p) => ({ ...p, title: undefined }));
                 }}
                 aria-invalid={Boolean(productFormErrors.title)}
-                className={`mt-1 w-full rounded-xl border px-4 py-3 text-[15px] outline-none disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-500 ${
-                  productFormErrors.title ? "border-rose-500 ring-1 ring-rose-100" : "border-slate-200"
+                className={`mt-1 w-full rounded-xl border px-4 py-3 text-[15px] outline-none focus:ring-2 ${
+                  productFormErrors.title
+                    ? "border-rose-500 focus:border-rose-500 focus:ring-rose-100"
+                    : "border-slate-200 focus:border-violet-400 focus:ring-violet-100"
                 }`}
               />
               {productFormErrors.title ? (
@@ -4217,9 +4398,21 @@ export default function AddProductClient({
                   <div className="relative">
                     <button
                       type="button"
-                      onClick={() =>
-                        setWebinarDatePickerIndex((prev) => (prev === idx ? null : idx))
-                      }
+                      onClick={() => {
+                        if (webinarDatePickerIndex !== idx) {
+                          const selectedDate = new Date(`${slot.dateIso}T00:00:00`);
+                          if (!Number.isNaN(selectedDate.getTime())) {
+                            setBlockMonth(
+                              new Date(
+                                selectedDate.getFullYear(),
+                                selectedDate.getMonth(),
+                                1
+                              )
+                            );
+                          }
+                        }
+                        setWebinarDatePickerIndex((prev) => (prev === idx ? null : idx));
+                      }}
                       className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-left text-lg font-semibold text-slate-800"
                     >
                       <span>{formatSlotDate(slot.dateIso)}</span>
@@ -4227,8 +4420,34 @@ export default function AddProductClient({
                     </button>
                     {webinarDatePickerIndex === idx ? (
                       <div className="absolute left-0 top-[calc(100%+8px)] z-30 w-[330px] rounded-xl border border-slate-200 bg-white p-4 shadow-xl">
-                        <div className="mb-2 text-center text-[38px] font-semibold text-slate-800">
-                          {monthTitle}
+                        <div className="mb-2 flex items-center justify-between">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setBlockMonth(
+                                (d) => new Date(d.getFullYear(), d.getMonth() - 1, 1)
+                              )
+                            }
+                            className="rounded-lg px-2 py-1 text-lg text-slate-500 hover:bg-slate-100"
+                            aria-label="Previous month"
+                          >
+                            ‹
+                          </button>
+                          <div className="text-center text-2xl font-semibold text-slate-800">
+                            {monthTitle}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setBlockMonth(
+                                (d) => new Date(d.getFullYear(), d.getMonth() + 1, 1)
+                              )
+                            }
+                            className="rounded-lg px-2 py-1 text-lg text-slate-500 hover:bg-slate-100"
+                            aria-label="Next month"
+                          >
+                            ›
+                          </button>
                         </div>
                         <div className="grid grid-cols-7 gap-y-2 text-center text-sm font-semibold text-slate-500">
                           {weekNames.map((w) => (
@@ -4321,7 +4540,9 @@ export default function AddProductClient({
               <button
                 type="button"
                 onClick={() => {
-                  setWebinarSlots((prev) => [...prev, { dateIso: "2026-04-27", time: "1:00 PM" }]);
+                  const today = new Date();
+                  const iso = toIsoDate(today);
+                  setWebinarSlots((prev) => [...prev, { dateIso: iso, time: "1:00 PM" }]);
                   setProductFormErrors((p) => ({ ...p, webinarSlots: undefined }));
                 }}
                 className="w-full rounded-xl border-2 border-violet-400 px-4 py-2.5 text-sm font-semibold text-violet-600"
@@ -4389,6 +4610,26 @@ export default function AddProductClient({
                 <span className="text-sm text-slate-400">seats/slot</span>
               </div>
             </div>
+          </section>
+
+          <section className="rounded-xl border border-slate-200 bg-white p-4">
+            <h2 className="text-sm font-semibold text-slate-900">Generate Zoom links and notify buyers</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Creates missing Zoom links for this webinar and sends the join link to buyers (email + WhatsApp) and your owner email.
+            </p>
+            <button
+              type="button"
+              disabled={webinarBackfillRunning || !token}
+              onClick={() => {
+                void generateWebinarLinksAndNotify();
+              }}
+              className="mt-3 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {webinarBackfillRunning ? "Generating..." : "Generate links and send notifications"}
+            </button>
+            {webinarBackfillMsg ? (
+              <p className="mt-2 text-xs font-medium text-slate-700">{webinarBackfillMsg}</p>
+            ) : null}
           </section>
         </div>
       ) : activeTab === "course" ? (

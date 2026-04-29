@@ -15,6 +15,9 @@ type CheckoutJson = {
 type ProductOptionsJson = {
   collect_emails?: boolean;
   custom_fields?: Array<string | { label?: string; id?: string }>;
+  webinar?: {
+    slots?: Array<{ dateIso?: string; time?: string }>;
+  };
 };
 
 export type PublicProduct = {
@@ -49,6 +52,41 @@ type LeadFormState = {
   email: string;
   answers: Record<string, string>;
 };
+
+type WebinarChoiceState = {
+  slotKey: string;
+  wantsRecording: boolean;
+};
+
+type WebinarCheckoutState = {
+  email: string;
+  phone: string;
+  countryCode: string;
+  dialCode: string;
+};
+
+const PHONE_COUNTRY_OPTIONS = [
+  { code: "IN", label: "India", dialCode: "+91" },
+  { code: "US", label: "United States", dialCode: "+1" },
+  { code: "GB", label: "United Kingdom", dialCode: "+44" },
+  { code: "AE", label: "UAE", dialCode: "+971" },
+  { code: "SG", label: "Singapore", dialCode: "+65" },
+  { code: "AU", label: "Australia", dialCode: "+61" },
+] as const;
+
+function normalizePhoneForApi(rawPhone: string, dialCode: string): string {
+  const raw = String(rawPhone || "").trim();
+  const dial = String(dialCode || "").trim() || "+91";
+  if (!raw) return "";
+  if (raw.startsWith("+")) {
+    const digits = raw.replace(/[^\d+]/g, "");
+    return /^\+\d{8,15}$/.test(digits) ? digits : "";
+  }
+  const localDigits = raw.replace(/\D/g, "");
+  if (!localDigits) return "";
+  const full = `${dial}${localDigits}`.replace(/\s+/g, "");
+  return /^\+\d{8,15}$/.test(full) ? full : "";
+}
 
 function displayPrice(p: PublicProduct): number {
   const cj = p.checkout_json || {};
@@ -97,6 +135,8 @@ export default function PublicStorePage({ username }: { username: string }) {
   const [leadForms, setLeadForms] = useState<Record<string, LeadFormState>>({});
   const [leadErrors, setLeadErrors] = useState<Record<string, string>>({});
   const [leadSuccess, setLeadSuccess] = useState<Record<string, string>>({});
+  const [webinarChoices, setWebinarChoices] = useState<Record<string, WebinarChoiceState>>({});
+  const [webinarForms, setWebinarForms] = useState<Record<string, WebinarCheckoutState>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -159,32 +199,103 @@ export default function PublicStorePage({ username }: { username: string }) {
     };
   }, []);
 
-  const purchase = async (productId: string) => {
+  const getWebinarSlots = (p: PublicProduct) => {
+    const raw = p.options_json?.webinar?.slots;
+    if (!Array.isArray(raw)) return [] as { dateIso: string; time: string }[];
+    return raw
+      .filter(
+        (slot) =>
+          slot &&
+          typeof slot === "object" &&
+          typeof slot.dateIso === "string" &&
+          typeof slot.time === "string" &&
+          slot.dateIso.trim() &&
+          slot.time.trim()
+      )
+      .map((slot) => ({
+        dateIso: slot.dateIso!.trim(),
+        time: slot.time!.trim(),
+      }));
+  };
+
+  const formatWebinarSlot = (slot: { dateIso: string; time: string }) => {
+    const d = new Date(`${slot.dateIso}T00:00:00`);
+    const datePart = Number.isNaN(d.getTime())
+      ? slot.dateIso
+      : d.toLocaleDateString("en-US", {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        });
+    return `${datePart} • ${slot.time}`;
+  };
+
+  const purchase = async (product: PublicProduct) => {
     const token =
       typeof window === "undefined"
         ? ""
         : localStorage.getItem("buyer_auth_token") || "";
-    if (!token) {
+    const webinarSlots = getWebinarSlots(product);
+    const isWebinar = String(product.product_type || "").toLowerCase() === "webinar";
+    const webinarForm = webinarForms[product.id] || {
+      email: "",
+      phone: "",
+      countryCode: "IN",
+      dialCode: "+91",
+    };
+    const emailCandidate = isWebinar
+      ? String(webinarForm.email || "").trim()
+      : String(buyer?.email || "").trim();
+    const buyerPhone = isWebinar
+      ? normalizePhoneForApi(webinarForm.phone || "", webinarForm.dialCode || "+91")
+      : String(buyer?.phone || "").trim();
+    if (!isWebinar && !token) {
       const redirectTo = `/${encodeURIComponent(username)}`;
       router.push(`/buyer/login?redirectTo=${encodeURIComponent(redirectTo)}`);
       return;
     }
-    const buyerPhone = String(buyer?.phone || "").trim();
-    const emailCandidate = String(buyer?.email || "").trim();
-    setBusyId(productId);
+    if (isWebinar && !/^\S+@\S+\.\S+$/.test(emailCandidate)) {
+      setToast("Please enter a valid email.");
+      window.setTimeout(() => setToast(""), 3500);
+      return;
+    }
+    if (isWebinar && !buyerPhone) {
+      setToast("Please enter a valid phone number with country.");
+      window.setTimeout(() => setToast(""), 3500);
+      return;
+    }
+    const choice = webinarChoices[product.id];
+    const defaultSlotKey =
+      webinarSlots.length > 0 ? `${webinarSlots[0].dateIso}|${webinarSlots[0].time}` : "";
+    const slotKey = choice?.slotKey || defaultSlotKey;
+    const selectedSlot = webinarSlots.find((slot) => `${slot.dateIso}|${slot.time}` === slotKey);
+    if (isWebinar && !selectedSlot) {
+      setToast("Please select a webinar slot.");
+      window.setTimeout(() => setToast(""), 3500);
+      return;
+    }
+    setBusyId(product.id);
     setToast("");
     try {
       const res = await fetch(`${API_PUBLIC_BASE}/purchase`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
-          product_id: productId,
+          product_id: product.id,
           ...(buyerPhone ? { buyer_whatsapp: buyerPhone } : {}),
           ...(buyer?.full_name ? { buyer_name: buyer.full_name } : {}),
           ...(emailCandidate ? { buyer_email: emailCandidate } : {}),
+          ...(isWebinar && selectedSlot
+            ? {
+                webinar_slot_date: selectedSlot.dateIso,
+                webinar_slot_time: selectedSlot.time,
+                webinar_recording_requested: Boolean(choice?.wantsRecording),
+              }
+            : {}),
         }),
       });
       const json = await res.json().catch(() => ({}));
@@ -524,17 +635,144 @@ export default function PublicStorePage({ username }: { username: string }) {
                           </button>
                         </>
                       ) : (
-                        <button
-                          type="button"
-                          disabled={busyId === p.id}
-                          onClick={() => void purchase(p.id)}
-                          className="w-full rounded-full py-3 text-[18px] font-bold text-white transition hover:opacity-95 disabled:opacity-60"
-                          style={{ backgroundColor: "#0a7a69" }}
-                        >
-                          {busyId === p.id
-                            ? "Processing payment..."
-                            : getProductCta(p, "Pay")}
-                        </button>
+                        <>
+                          {String(p.product_type || "").toLowerCase() === "webinar" &&
+                          getWebinarSlots(p).length > 0 ? (
+                            <div className="mb-3 space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                              <label className="block text-xs font-semibold text-slate-700">
+                                Email
+                              </label>
+                              <input
+                                type="email"
+                                value={webinarForms[p.id]?.email || ""}
+                                onChange={(e) =>
+                                  setWebinarForms((prev) => ({
+                                    ...prev,
+                                    [p.id]: {
+                                      email: e.target.value,
+                                      phone: prev[p.id]?.phone || "",
+                                      countryCode: prev[p.id]?.countryCode || "IN",
+                                      dialCode: prev[p.id]?.dialCode || "+91",
+                                    },
+                                  }))
+                                }
+                                placeholder="you@example.com"
+                                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-violet-400"
+                              />
+                              <label className="block text-xs font-semibold text-slate-700">
+                                Phone / WhatsApp number
+                              </label>
+                              <div className="flex gap-2">
+                                <select
+                                  value={webinarForms[p.id]?.countryCode || "IN"}
+                                  onChange={(e) => {
+                                    const selected =
+                                      PHONE_COUNTRY_OPTIONS.find((c) => c.code === e.target.value) ||
+                                      PHONE_COUNTRY_OPTIONS[0];
+                                    setWebinarForms((prev) => ({
+                                      ...prev,
+                                      [p.id]: {
+                                        email: prev[p.id]?.email || "",
+                                        phone: prev[p.id]?.phone || "",
+                                        countryCode: selected.code,
+                                        dialCode: selected.dialCode,
+                                      },
+                                    }));
+                                  }}
+                                  className="w-[44%] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-violet-400"
+                                >
+                                  {PHONE_COUNTRY_OPTIONS.map((c) => (
+                                    <option key={c.code} value={c.code}>
+                                      {c.label} ({c.dialCode})
+                                    </option>
+                                  ))}
+                                </select>
+                                <input
+                                  type="tel"
+                                  value={webinarForms[p.id]?.phone || ""}
+                                  onChange={(e) =>
+                                    setWebinarForms((prev) => ({
+                                      ...prev,
+                                      [p.id]: {
+                                        email: prev[p.id]?.email || "",
+                                        phone: e.target.value,
+                                        countryCode: prev[p.id]?.countryCode || "IN",
+                                        dialCode: prev[p.id]?.dialCode || "+91",
+                                      },
+                                    }))
+                                  }
+                                  placeholder="Enter number"
+                                  className="w-[56%] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-violet-400"
+                                />
+                              </div>
+                              <label className="block text-xs font-semibold text-slate-700">
+                                Choose webinar slot
+                              </label>
+                              <select
+                                value={
+                                  webinarChoices[p.id]?.slotKey ||
+                                  `${getWebinarSlots(p)[0].dateIso}|${getWebinarSlots(p)[0].time}`
+                                }
+                                onChange={(e) =>
+                                  setWebinarChoices((prev) => ({
+                                    ...prev,
+                                    [p.id]: {
+                                      slotKey: e.target.value,
+                                      wantsRecording: prev[p.id]?.wantsRecording || false,
+                                    },
+                                  }))
+                                }
+                                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-violet-400"
+                              >
+                                {getWebinarSlots(p).map((slot) => {
+                                  const key = `${slot.dateIso}|${slot.time}`;
+                                  return (
+                                    <option key={key} value={key}>
+                                      {formatWebinarSlot(slot)}
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                              <label className="inline-flex items-center gap-2 text-xs text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(webinarChoices[p.id]?.wantsRecording)}
+                                  onChange={(e) =>
+                                    setWebinarChoices((prev) => ({
+                                      ...prev,
+                                      [p.id]: {
+                                        slotKey:
+                                          prev[p.id]?.slotKey ||
+                                          `${getWebinarSlots(p)[0].dateIso}|${getWebinarSlots(p)[0].time}`,
+                                        wantsRecording: e.target.checked,
+                                      },
+                                    }))
+                                  }
+                                  className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                                />
+                                I want recorded copy later
+                              </label>
+                            </div>
+                          ) : null}
+                          <button
+                            type="button"
+                            disabled={busyId === p.id}
+                            onClick={() => void purchase(p)}
+                            className="w-full rounded-full py-3 text-[18px] font-bold text-white transition hover:opacity-95 disabled:opacity-60"
+                            style={{ backgroundColor: "#0a7a69" }}
+                          >
+                            {busyId === p.id
+                              ? String(p.product_type || "").toLowerCase() === "webinar"
+                                ? "Registering..."
+                                : "Processing payment..."
+                              : getProductCta(
+                                  p,
+                                  String(p.product_type || "").toLowerCase() === "webinar"
+                                    ? "Register"
+                                    : "Pay"
+                                )}
+                          </button>
+                        </>
                       )}
                     </div>
                   </article>

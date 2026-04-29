@@ -77,8 +77,7 @@ function normalizeLandingRows(payload: unknown): ProductRow[] {
           : Array.isArray(data?.products)
             ? data.products
             : [];
-  return rawList
-    .map((raw) => {
+  const mapped: Array<ProductRow | null> = rawList.map((raw): ProductRow | null => {
       const item = raw as Record<string, unknown>;
       const id = typeof item.id === "string" ? item.id : "";
       if (!id) return null;
@@ -108,9 +107,9 @@ function normalizeLandingRows(payload: unknown): ProductRow[] {
         style: typeof item.style === "string" ? item.style : "callout",
         updated_at:
           typeof item.updated_at === "string" ? item.updated_at : new Date().toISOString(),
-      } satisfies ProductRow;
-    })
-    .filter((row): row is ProductRow => row !== null);
+      };
+    });
+  return mapped.filter((row): row is ProductRow => row !== null);
 }
 
 function getProductEditHref(p: ProductRow): string {
