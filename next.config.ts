@@ -4,6 +4,10 @@ import type { NextConfig } from "next";
 const backendUrl = process.env.BACKEND_URL ?? "http://127.0.0.1:5001";
 
 const nextConfig: NextConfig = {
+  turbopack: {
+    // Prevent Next from picking the parent folder as workspace root.
+    root: __dirname,
+  },
   async rewrites() {
     return [
       {

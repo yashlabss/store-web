@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { API_PUBLIC_BASE } from "../../lib/api";
 
 const PURPLE = "#6b46ff";
@@ -11,6 +12,7 @@ type Delivery = {
   type: string;
   file_name: string | null;
   redirect_url: string | null;
+  download_links?: Array<{ label: string; url: string }>;
 };
 
 type OrderPayload = {
@@ -21,50 +23,166 @@ type OrderPayload = {
     currency: string;
     buyer_email: string | null;
     buyer_name: string | null;
+    buyer_phone?: string | null;
     payment_method: string;
     product_title: string | null;
   };
   delivery: Delivery;
+  delivery_status?: {
+    email?: {
+      status?: string;
+      provider?: string | null;
+      sent_at?: string | null;
+      error_hint?: string | null;
+    };
+    whatsapp?: {
+      status?: string;
+      provider?: string | null;
+      sent_at?: string | null;
+      twilio_error?: { twilio_code?: string | null; message?: string | null } | null;
+    };
+  };
+  webinar?: {
+    registration_id?: string | null;
+    slot_date?: string | null;
+    slot_time?: string | null;
+    time_zone?: string | null;
+    meeting_link?: string | null;
+    meeting_provider?: string | null;
+    meeting_location?: string | null;
+    meeting_start_at?: string | null;
+  } | null;
 };
 
+function mailSentSimple(status?: string) {
+  return String(status || "").toLowerCase() === "sent";
+}
+
+/** Treat API success / in-flight WhatsApp as “sent” for a simple buyer-facing line. */
+function whatsAppSentSimple(status?: string) {
+  const s = String(status || "").toLowerCase();
+  return s === "sent" || s === "accepted" || s === "pending";
+}
+
+type DeliveryUiStatus = "sent" | "pending" | "failed" | "not_requested" | "not_configured";
+
+function normalizeDeliveryStatus(status?: string): DeliveryUiStatus {
+  const s = String(status || "").toLowerCase();
+  if (s === "sent" || s === "accepted") return "sent";
+  if (s === "not_configured") return "not_configured";
+  if (s === "pending" || s === "queued") return "pending";
+  if (s === "failed") return "failed";
+  return "not_requested";
+}
+
+function statusBadgeClasses(status: DeliveryUiStatus): string {
+  if (status === "sent") return "bg-emerald-100 text-emerald-700";
+  if (status === "pending") return "bg-amber-100 text-amber-700";
+  if (status === "failed") return "bg-red-100 text-red-700";
+  if (status === "not_configured") return "bg-amber-100 text-amber-800";
+  return "bg-slate-100 text-slate-600";
+}
+
+function statusLabel(status: DeliveryUiStatus): string {
+  if (status === "not_requested") return "not requested";
+  if (status === "not_configured") return "not configured";
+  return status;
+}
+
 export default function ThankYouPage() {
+  const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
   const username = typeof params?.username === "string" ? params.username : "";
   const orderId = searchParams.get("order");
+  const token = searchParams.get("token");
+  const hasAccessParams = Boolean(orderId && token);
 
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(hasAccessParams);
+  const [error, setError] = useState(
+    hasAccessParams
+      ? ""
+      : "Missing order access details. Return to the store and complete purchase again."
+  );
   const [data, setData] = useState<OrderPayload | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState("");
 
   useEffect(() => {
-    if (!orderId) {
-      setLoading(false);
-      setError("Missing order. Return to the store and complete a purchase.");
-      return;
-    }
+    if (typeof window === "undefined") return;
+    const authToken = localStorage.getItem("buyer_auth_token");
+    if (authToken) return;
+    const redirectTo = `${window.location.pathname}${window.location.search}`;
+    router.replace(`/buyer/login?redirectTo=${encodeURIComponent(redirectTo)}`);
+  }, [router]);
+
+  useEffect(() => {
+    if (!hasAccessParams || !orderId || !token) return;
     let cancelled = false;
-    setLoading(true);
-    setError("");
-    void (async () => {
+    let pollCount = 0;
+
+    async function loadOrder(isPoll: boolean) {
+      const oid = orderId ?? "";
+      const tok = token ?? "";
+      if (!oid || !tok) return;
       try {
+        const tokenValue =
+          typeof window === "undefined"
+            ? ""
+            : localStorage.getItem("buyer_auth_token") || "";
         const res = await fetch(
-          `${API_PUBLIC_BASE}/order/${encodeURIComponent(orderId)}`,
-          { cache: "no-store" }
+          `${API_PUBLIC_BASE}/order/${encodeURIComponent(oid)}?token=${encodeURIComponent(tok)}`,
+          {
+            cache: "no-store",
+            headers: tokenValue ? { Authorization: `Bearer ${tokenValue}` } : {},
+          }
         );
         const json = await res.json().catch(() => ({}));
+        if (res.status === 401) {
+          if (typeof window !== "undefined") localStorage.removeItem("buyer_auth_token");
+          const redirectTo = `${window.location.pathname}${window.location.search}`;
+          router.replace(`/buyer/login?redirectTo=${encodeURIComponent(redirectTo)}`);
+          return;
+        }
+        if (res.status === 403) {
+          if (!cancelled) {
+            setError(
+              json.message ||
+                "This order was placed with a different buyer email. Log in with the account you used at checkout."
+            );
+          }
+          return;
+        }
         if (!res.ok) throw new Error(json.message || "Could not load order.");
         if (!cancelled) setData(json as OrderPayload);
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Could not load order.");
+        if (!cancelled && !isPoll) {
+          setError(e instanceof Error ? e.message : "Could not load order.");
+        }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && !isPoll) setLoading(false);
       }
-    })();
+    }
+
+    void loadOrder(false);
+
+    const pollMs = 2500;
+    const maxPolls = 6;
+    const timer = window.setInterval(() => {
+      if (cancelled) return;
+      pollCount += 1;
+      if (pollCount > maxPolls) {
+        window.clearInterval(timer);
+        return;
+      }
+      void loadOrder(true);
+    }, pollMs);
+
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
     };
-  }, [orderId]);
+  }, [hasAccessParams, orderId, token, router]);
 
   if (loading) {
     return (
@@ -85,10 +203,57 @@ export default function ThankYouPage() {
     );
   }
 
-  const { order, delivery } = data;
+  const { order, delivery, delivery_status: status } = data;
+  const webinar = data.webinar;
+  const showMailLine = mailSentSimple(status?.email?.status);
+  const showWhatsAppLine = whatsAppSentSimple(status?.whatsapp?.status);
+  const emailDelivery = normalizeDeliveryStatus(status?.email?.status);
+  const whatsappDelivery = normalizeDeliveryStatus(status?.whatsapp?.status);
+  const zoomLinkReady = Boolean(webinar?.meeting_link);
   const amount = Number(order.amount) || 0;
   const showRedirect =
     delivery.type === "redirect" && delivery.redirect_url && /^https?:\/\//i.test(delivery.redirect_url);
+  const firstDownload = delivery.download_links?.[0];
+
+  const triggerDownload = async () => {
+    if (!token) return;
+    setDownloading(true);
+    setDownloadError("");
+    try {
+      const res = await fetch(`${API_PUBLIC_BASE}/download`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(typeof window !== "undefined" && localStorage.getItem("buyer_auth_token")
+            ? {
+                Authorization: `Bearer ${localStorage.getItem("buyer_auth_token")}`,
+              }
+            : {}),
+        },
+        body: JSON.stringify({ token }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.message || "Could not generate download.");
+      const url = String(json?.url || "");
+      const fileName = String(json?.file_name || delivery.file_name || "download");
+      if (!url) throw new Error("Download URL is unavailable.");
+      const fileRes = await fetch(url);
+      if (!fileRes.ok) throw new Error("Could not fetch product file.");
+      const blob = await fileRes.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(blobUrl);
+    } catch (e) {
+      setDownloadError(e instanceof Error ? e.message : "Download failed.");
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#fafbff] pb-28">
@@ -127,10 +292,34 @@ export default function ThankYouPage() {
               >
                 Open download link
               </a>
+            ) : firstDownload?.url ? (
+              <button
+                type="button"
+                onClick={() => void triggerDownload()}
+                disabled={downloading}
+                className="mt-3 flex w-full items-center justify-center rounded-full py-3.5 text-[15px] font-bold text-white transition hover:opacity-95"
+                style={{ backgroundColor: PURPLE }}
+              >
+                {downloading ? "Preparing download..." : "Download file"}
+              </button>
             ) : delivery.file_name ? (
-              <p className="mt-2 text-sm text-slate-600">
-                Your file: <span className="font-medium text-slate-900">{delivery.file_name}</span>
-              </p>
+              <>
+                <p className="mt-2 text-sm text-slate-600">
+                  Your file: <span className="font-medium text-slate-900">{delivery.file_name}</span>
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void triggerDownload()}
+                  disabled={downloading}
+                  className="mt-3 flex w-full items-center justify-center rounded-full py-3.5 text-[15px] font-bold text-white transition hover:opacity-95 disabled:opacity-60"
+                  style={{ backgroundColor: PURPLE }}
+                >
+                  {downloading ? "Preparing download..." : "Download now"}
+                </button>
+                {downloadError ? (
+                  <p className="mt-2 text-sm font-medium text-red-600">{downloadError}</p>
+                ) : null}
+              </>
             ) : (
               <p className="mt-2 text-sm text-slate-600">
                 The creator will deliver this product according to their settings. Keep this confirmation for your
@@ -138,9 +327,85 @@ export default function ThankYouPage() {
               </p>
             )}
             <p className="mt-4 text-xs text-slate-500">
-              In production, a receipt email is sent automatically (e.g. from your platform domain). This demo does not
-              send email.
+              Receipt and delivery are sent to your email and WhatsApp when configured by the seller.
             </p>
+          </div>
+          <div className="mt-5 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Delivery status</p>
+            <div className="mt-3 space-y-2 text-sm text-slate-800">
+              <div className="flex items-center justify-between rounded-lg bg-white px-3 py-2">
+                <span>Email</span>
+                <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadgeClasses(emailDelivery)}`}>
+                  {statusLabel(emailDelivery)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between rounded-lg bg-white px-3 py-2">
+                <span>WhatsApp</span>
+                <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadgeClasses(whatsappDelivery)}`}>
+                  {statusLabel(whatsappDelivery)}
+                </span>
+              </div>
+              {webinar ? (
+                <div className="rounded-lg bg-white px-3 py-2">
+                  <div className="flex items-center justify-between">
+                    <span>Meeting link</span>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                        zoomLinkReady ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+                      }`}
+                    >
+                      {zoomLinkReady ? "created" : "pending"}
+                    </span>
+                  </div>
+                  {webinar.slot_date || webinar.slot_time ? (
+                    <p className="mt-1 text-xs text-slate-500">
+                      {webinar.slot_date || ""} {webinar.slot_time || ""}{" "}
+                      {webinar.time_zone ? `(${webinar.time_zone})` : ""}
+                    </p>
+                  ) : null}
+                  {webinar.meeting_link ? (
+                    <a
+                      href={webinar.meeting_link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-1 inline-block text-xs font-semibold text-violet-600 underline"
+                    >
+                      Open webinar link
+                    </a>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+            <div className="mt-3 space-y-1 text-xs text-slate-500">
+              {emailDelivery === "failed" ? (
+                <>
+                  <p>
+                    Email did not send. In <code className="rounded bg-slate-100 px-1">store-backend/.env</code> set
+                    either SMTP (Gmail etc.) or{" "}
+                    <code className="rounded bg-slate-100 px-1">RESEND_API_KEY</code> +{" "}
+                    <code className="rounded bg-slate-100 px-1">RESEND_FROM_EMAIL</code>, then restart the API.
+                  </p>
+                  {status?.email?.error_hint ? (
+                    <p className="mt-1 break-words font-mono text-[11px] text-slate-600">
+                      {status.email.error_hint}
+                    </p>
+                  ) : null}
+                </>
+              ) : null}
+              {whatsappDelivery === "not_configured" ? (
+                <p>
+                  WhatsApp is not set up. Add Twilio WhatsApp env vars in{" "}
+                  <code className="rounded bg-slate-100 px-1">store-backend/.env</code> (see{" "}
+                  <code className="rounded bg-slate-100 px-1">.env.example</code>) and restart.
+                </p>
+              ) : null}
+              {whatsappDelivery === "not_requested" && webinar ? (
+                <p>WhatsApp was not requested for this order (missing/invalid phone at checkout).</p>
+              ) : null}
+              {(showMailLine || showWhatsAppLine) && !webinar ? (
+                <p>Delivery is in progress and usually completes quickly.</p>
+              ) : null}
+            </div>
           </div>
 
           <Link

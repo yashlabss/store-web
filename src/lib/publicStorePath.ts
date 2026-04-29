@@ -1,10 +1,21 @@
 /**
- * Public storefront URL path: /{handle} e.g. /yaswanth
- * Marketing domain shown in the dashboard: yash.store/{handle}
+ * Configure this in deployment env when using custom domain, e.g.:
+ * NEXT_PUBLIC_STORE_BASE_URL=https://stan.store
  */
-export function publicStoreUrl(handle: string) {
+const rawStoreBase = process.env.NEXT_PUBLIC_STORE_BASE_URL?.trim() || "";
+export const STORE_BASE_URL = rawStoreBase.replace(/\/$/, "");
+
+export function publicStorePath(handle: string) {
   return `/${encodeURIComponent(handle)}`;
 }
 
-/** Shown next to copy (not the browser path). */
-export const DISPLAY_STORE_DOMAIN = "yash.store";
+/** Relative URL in local/dev; absolute URL when custom origin is configured. */
+export function publicStoreUrl(handle: string) {
+  const path = publicStorePath(handle);
+  return STORE_BASE_URL ? `${STORE_BASE_URL}${path}` : path;
+}
+
+/** Human-readable domain label shown in UI next to handle. */
+export const DISPLAY_STORE_DOMAIN = STORE_BASE_URL
+  ? STORE_BASE_URL.replace(/^https?:\/\//, "")
+  : "localhost:3000";
