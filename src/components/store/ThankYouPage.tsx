@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { API_PUBLIC_BASE } from "../../lib/api";
+import { API_PUBLIC_BASE, API_WEBINAR_HOST_BASE } from "../../lib/api";
 
 const PURPLE = "#6b46ff";
 
@@ -26,6 +26,7 @@ type OrderPayload = {
     buyer_phone?: string | null;
     payment_method: string;
     product_title: string | null;
+    product_id?: string | null;
   };
   delivery: Delivery;
   delivery_status?: {
@@ -43,6 +44,11 @@ type OrderPayload = {
     };
   };
   webinar?: {
+    webinar_id?: string | null;
+    webinar_status?: string | null;
+    webinar_start_time?: string | null;
+    webinar_end_time?: string | null;
+    webinar_duration_mins?: number | null;
     registration_id?: string | null;
     slot_date?: string | null;
     slot_time?: string | null;
@@ -51,6 +57,14 @@ type OrderPayload = {
     meeting_provider?: string | null;
     meeting_location?: string | null;
     meeting_start_at?: string | null;
+  } | null;
+};
+
+type SessionTrackResult = {
+  ok: boolean;
+  session?: {
+    attendance_secs?: number | null;
+    attendance_mark?: string | null;
   } | null;
 };
 
@@ -107,6 +121,16 @@ export default function ThankYouPage() {
   const [data, setData] = useState<OrderPayload | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState("");
+  const [webinarSessionJoined, setWebinarSessionJoined] = useState(false);
+  const [webinarSessionEverJoined, setWebinarSessionEverJoined] = useState(false);
+  const [webinarSessionStatus, setWebinarSessionStatus] = useState("");
+  const [attendanceMark, setAttendanceMark] = useState("");
+  const [attendanceSecs, setAttendanceSecs] = useState<number | null>(null);
+  const [feedbackRating, setFeedbackRating] = useState("5");
+  const [feedbackText, setFeedbackText] = useState("");
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  const [feedbackError, setFeedbackError] = useState("");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -184,6 +208,62 @@ export default function ThankYouPage() {
     };
   }, [hasAccessParams, orderId, token, router]);
 
+  useEffect(() => {
+    if (!data?.webinar?.webinar_id || !webinarSessionJoined) return;
+    const webinarId = data.webinar.webinar_id;
+    const timer = window.setInterval(() => {
+      void trackWebinarSession("heartbeat", webinarId);
+    }, 30000);
+    const onPageHide = () => {
+      void trackWebinarSession("leave", webinarId).then((result) => {
+        if (result.ok) {
+          setAttendanceMark(String(result.session?.attendance_mark || ""));
+          setAttendanceSecs(
+            typeof result.session?.attendance_secs === "number"
+              ? result.session.attendance_secs
+              : null
+          );
+        }
+      });
+      setWebinarSessionJoined(false);
+    };
+    window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("beforeunload", onPageHide);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("beforeunload", onPageHide);
+      void trackWebinarSession("leave", webinarId);
+    };
+  }, [data?.webinar?.webinar_id, webinarSessionJoined]);
+
+  useEffect(() => {
+    if (!webinarSessionEverJoined || !orderId || !token) return;
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      const tokenValue = localStorage.getItem("buyer_auth_token") || "";
+      if (!tokenValue) return;
+      void fetch(
+        `${API_PUBLIC_BASE}/order/${encodeURIComponent(orderId)}?token=${encodeURIComponent(token)}`,
+        {
+          cache: "no-store",
+          headers: { Authorization: `Bearer ${tokenValue}` },
+        }
+      )
+        .then((res) => res.json().then((json) => ({ ok: res.ok, json })))
+        .then(({ ok, json }) => {
+          if (ok) setData(json as OrderPayload);
+        })
+        .catch(() => {
+          /* ignore silent refresh errors */
+        });
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [webinarSessionEverJoined, orderId, token]);
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-white">
@@ -214,6 +294,34 @@ export default function ThankYouPage() {
   const showRedirect =
     delivery.type === "redirect" && delivery.redirect_url && /^https?:\/\//i.test(delivery.redirect_url);
   const firstDownload = delivery.download_links?.[0];
+  const webinarEnded =
+    Boolean(webinar?.webinar_end_time) || String(webinar?.webinar_status || "") === "ended";
+  const webinarStartMs = webinar?.webinar_start_time
+    ? new Date(webinar.webinar_start_time).getTime()
+    : Number.NaN;
+  const webinarEndMs = webinar?.webinar_end_time
+    ? new Date(webinar.webinar_end_time).getTime()
+    : Number.NaN;
+  const webinarDurationMins =
+    !Number.isNaN(webinarStartMs) && !Number.isNaN(webinarEndMs)
+      ? Math.max(0, Number(((webinarEndMs - webinarStartMs) / 60000).toFixed(2)))
+      : null;
+  const endedEarly =
+    webinarEnded &&
+    webinarDurationMins != null &&
+    Number(webinar?.webinar_duration_mins || 0) > 0 &&
+    webinarDurationMins < Number(webinar?.webinar_duration_mins || 0);
+  const attendanceLabel =
+    String(attendanceMark || "").toLowerCase() === "completed"
+      ? "Completed"
+      : String(attendanceMark || "").toLowerCase() === "partial"
+        ? "Partial"
+        : String(attendanceMark || "").toLowerCase() === "missed"
+          ? "Not attended"
+          : webinarEnded && webinarSessionEverJoined
+            ? "Not attended"
+            : "—";
+  const showFeedbackForm = webinarEnded && webinarSessionEverJoined && !feedbackSubmitted;
 
   const triggerDownload = async () => {
     if (!token) return;
@@ -252,6 +360,68 @@ export default function ThankYouPage() {
       setDownloadError(e instanceof Error ? e.message : "Download failed.");
     } finally {
       setDownloading(false);
+    }
+  };
+
+  const submitFeedback = async () => {
+    try {
+      setFeedbackBusy(true);
+      setFeedbackError("");
+      const res = await fetch(`${API_PUBLIC_BASE}/track`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username,
+          event_type: "webinar_feedback_submitted",
+          product_id: order.product_id || undefined,
+          metadata: {
+            webinar_id: webinar?.webinar_id || null,
+            rating: Number(feedbackRating) || 0,
+            feedback: feedbackText.trim(),
+            attendance_mark: attendanceMark || null,
+            attendance_secs: attendanceSecs,
+            ended_early: endedEarly,
+          },
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((json as { message?: string }).message || "Could not submit feedback.");
+      }
+      setFeedbackSubmitted(true);
+      setWebinarSessionStatus("Thanks! Your webinar feedback has been submitted.");
+    } catch (e) {
+      setFeedbackError(e instanceof Error ? e.message : "Could not submit feedback.");
+    } finally {
+      setFeedbackBusy(false);
+    }
+  };
+
+  const trackWebinarSession = async (
+    action: "join" | "heartbeat" | "leave",
+    webinarId: string
+  ): Promise<SessionTrackResult> => {
+    try {
+      const tokenValue =
+        typeof window === "undefined" ? "" : localStorage.getItem("buyer_auth_token") || "";
+      if (!tokenValue) return { ok: false };
+      const res = await fetch(`${API_WEBINAR_HOST_BASE}/session/${action}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${tokenValue}`,
+        },
+        body: JSON.stringify({ webinar_id: webinarId }),
+        keepalive: action === "leave",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) return { ok: false };
+      return {
+        ok: true,
+        session: (json as { session?: SessionTrackResult["session"] }).session || null,
+      };
+    } catch {
+      return { ok: false };
     }
   };
 
@@ -364,14 +534,98 @@ export default function ThankYouPage() {
                     </p>
                   ) : null}
                   {webinar.meeting_link ? (
-                    <a
-                      href={webinar.meeting_link}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const meetingLink = webinar.meeting_link || "";
+                        const runtimeWebinarId = webinar.webinar_id || "";
+                        if (!meetingLink) return;
+                        if (runtimeWebinarId) {
+                          void trackWebinarSession("join", runtimeWebinarId).then((result) => {
+                            setWebinarSessionJoined(result.ok || webinarSessionJoined);
+                            if (result.ok) setWebinarSessionEverJoined(true);
+                            setWebinarSessionStatus(
+                              result.ok
+                                ? "Session tracking active."
+                                : "Meeting opened. Session tracking unavailable."
+                            );
+                            window.open(meetingLink, "_blank", "noopener,noreferrer");
+                          });
+                          return;
+                        }
+                        setWebinarSessionStatus("Meeting opened. Webinar runtime ID is missing.");
+                        window.open(meetingLink, "_blank", "noopener,noreferrer");
+                      }}
                       className="mt-1 inline-block text-xs font-semibold text-violet-600 underline"
                     >
                       Open webinar link
-                    </a>
+                    </button>
+                  ) : null}
+                  {webinarSessionStatus ? (
+                    <p className="mt-1 text-[11px] text-slate-500">{webinarSessionStatus}</p>
+                  ) : null}
+                  {(webinarEnded || webinarSessionEverJoined) ? (
+                    <div className="mt-2 space-y-1 text-[11px] text-slate-600">
+                      <p>
+                        Attendance:{" "}
+                        <span className="font-semibold text-slate-800">{attendanceLabel}</span>
+                        {typeof attendanceSecs === "number"
+                          ? ` (${Math.round(attendanceSecs / 60)} mins)`
+                          : ""}
+                      </p>
+                      {webinarEnded ? (
+                        <p>
+                          Webinar ended {endedEarly ? "early" : "as planned"}.
+                          {webinarDurationMins != null
+                            ? ` Duration: ${webinarDurationMins} mins.`
+                            : ""}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {showFeedbackForm ? (
+                    <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-xs font-semibold text-slate-800">
+                        Webinar feedback
+                      </p>
+                      <div className="mt-2">
+                        <label className="text-[11px] text-slate-600">Rating</label>
+                        <select
+                          value={feedbackRating}
+                          onChange={(e) => setFeedbackRating(e.target.value)}
+                          className="mt-1 w-full rounded border border-slate-200 bg-white px-2 py-1 text-xs"
+                        >
+                          <option value="5">5 - Excellent</option>
+                          <option value="4">4 - Good</option>
+                          <option value="3">3 - Okay</option>
+                          <option value="2">2 - Poor</option>
+                          <option value="1">1 - Very poor</option>
+                        </select>
+                      </div>
+                      <div className="mt-2">
+                        <label className="text-[11px] text-slate-600">
+                          Comment (optional)
+                        </label>
+                        <textarea
+                          value={feedbackText}
+                          onChange={(e) => setFeedbackText(e.target.value)}
+                          rows={3}
+                          className="mt-1 w-full rounded border border-slate-200 bg-white px-2 py-1 text-xs"
+                          placeholder="How was the webinar?"
+                        />
+                      </div>
+                      {feedbackError ? (
+                        <p className="mt-1 text-[11px] text-red-600">{feedbackError}</p>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => void submitFeedback()}
+                        disabled={feedbackBusy}
+                        className="mt-2 rounded bg-slate-900 px-3 py-1 text-[11px] font-semibold text-white disabled:opacity-60"
+                      >
+                        {feedbackBusy ? "Submitting..." : "Submit feedback"}
+                      </button>
+                    </div>
                   ) : null}
                 </div>
               ) : null}

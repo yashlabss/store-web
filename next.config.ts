@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
-// Proxy /api/* to Express. Requires store-backend running (default port 5001), or set BACKEND_URL.
-const backendUrl = process.env.BACKEND_URL ?? "http://127.0.0.1:5001";
+// Proxy /api/* to Express. Requires store-backend running (default port 5000), or set BACKEND_URL.
+const backendUrl = process.env.BACKEND_URL ?? "http://127.0.0.1:5000";
 
 const nextConfig: NextConfig = {
   turbopack: {

@@ -8,7 +8,7 @@ export function networkErrorMessage(err: unknown): string {
     m.includes("load failed") ||
     m.includes("econnrefused")
   ) {
-    return "Cannot reach the API. In a second terminal run: cd store-backend && npm run dev (port 5001). Then retry signup.";
+    return "Cannot reach the API. In a second terminal run: cd store-backend && npm run dev (port 5000). Then retry signup.";
   }
   return err.message;
 }
