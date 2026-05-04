@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import DashboardShell, { PURPLE } from "../dashboard/DashboardShell";
@@ -83,27 +83,41 @@ function thumbnailStepHasErrors(e: CollectEmailsFormErrors): boolean {
   return Boolean(e.thumbnail || e.title || e.subtitle || e.button || (e.fieldErrors && Object.keys(e.fieldErrors).length > 0));
 }
 
+const MAX_LEAD_FILE_BYTES = 12 * 1024 * 1024;
+
 function validateProductStep(
-  delivery: "upload" | "redirect",
+  deliveryMode: "upload" | "redirect",
+  uploadedFileDataUrl: string | null,
   uploadedFileName: string | null,
   redirectUrl: string,
 ): CollectEmailsFormErrors {
   const out: CollectEmailsFormErrors = {};
-  if (delivery === "upload") {
-    if (!uploadedFileName?.trim()) out.productFile = "Please upload a file or switch to Redirect to URL.";
-  } else {
-    const u = redirectUrl.trim();
-    if (!u) out.redirectUrl = "Please enter a redirect URL.";
-    else {
-      try {
-        const parsed = new URL(u);
-        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-          out.redirectUrl = "URL must use http:// or https://.";
-        }
-      } catch {
-        out.redirectUrl = "Enter a valid URL (e.g. https://example.com).";
-      }
+  const hasFile = Boolean(uploadedFileDataUrl?.trim());
+  const u = redirectUrl.trim();
+  const hasUrl = Boolean(u);
+
+  if (deliveryMode === "upload") {
+    if (!hasFile) {
+      out.productFile = "Upload a PDF or other file so people get something free after they submit.";
+      return out;
     }
+    if (!uploadedFileName?.trim()) {
+      out.productFile = "File did not load. Try uploading again.";
+    }
+    return out;
+  }
+
+  if (!hasUrl) {
+    out.redirectUrl = "Enter a redirect URL (e.g. https://example.com).";
+    return out;
+  }
+  try {
+    const parsed = new URL(u);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      out.redirectUrl = "URL must use http:// or https://.";
+    }
+  } catch {
+    out.redirectUrl = "Enter a valid URL (e.g. https://example.com).";
   }
   return out;
 }
@@ -115,18 +129,23 @@ function productStepHasErrors(e: CollectEmailsFormErrors): boolean {
 const CONFIRMATION_SUBJECT_MAX = 200;
 const CONFIRMATION_BODY_MAX = 8000;
 const DEFAULT_CONFIRMATION_SUBJECT =
-  "Your `Product Name` download from @`My Username`!";
-const DEFAULT_CONFIRMATION_BODY = `Hi \`Customer Name\`!
+  "Your download is ready — `Product Name`";
+const DEFAULT_CONFIRMATION_BODY = `Hi \`Customer Name\`,
 
-Here is your download for:
-\`Product File(s)\`
+Thank you for requesting \`Product Name\`.
 
-- @\`My Username\``;
+Your PDF is attached to this email. \`Product File(s)\` will show the filename. If the attachment does not show up, use this secure link (valid for 7 days):
+{{file_download_url}}
+
+Kind regards,
+@\`My Username\``;
 
 const PERSONALIZE_CHIPS: { label: string; value: string }[] = [
   { label: "Product Name", value: "`Product Name`" },
   { label: "Customer Name", value: "`Customer Name`" },
   { label: "Product File(s)", value: "`Product File(s)`" },
+  { label: "File download URL", value: "{{file_download_url}}" },
+  { label: "Bonus link URL", value: "{{download_url}}" },
   { label: "My Username", value: "`My Username`" },
 ];
 
@@ -135,9 +154,12 @@ function validateOptionsStep(subject: string, body: string): CollectEmailsFormEr
   if (!subject.trim()) out.confirmationSubject = "Confirmation email subject is required.";
   const bodyTrim = body.trim();
   if (!bodyTrim) out.confirmationBody = "Confirmation email body is required.";
-  else if (!body.includes("Product File(s)")) {
+  else if (
+    !body.includes("Product File(s)") &&
+    !body.includes("{{file_download_url}}")
+  ) {
     out.confirmationBody =
-      "Include the Product File(s) placeholder so buyers know how to access their download.";
+      "Include {{file_download_url}} or the Product File(s) placeholder so buyers know how to access their download.";
   }
   return out;
 }
@@ -592,9 +614,10 @@ export default function CollectEmailsClient({ displayName, handle, showName, onS
   const [thumbnailFileName, setThumbnailFileName] = useState<string | null>(null);
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [delivery, setDelivery] = useState<"upload" | "redirect">("upload");
+  const [uploadedFileDataUrl, setUploadedFileDataUrl] = useState<string | null>(null);
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
   const [redirectUrl, setRedirectUrl] = useState("");
+  const [deliveryMode, setDeliveryMode] = useState<"upload" | "redirect">("upload");
   const [emailFlowsOpen, setEmailFlowsOpen] = useState(true);
   const [confirmationOpen, setConfirmationOpen] = useState(true);
   const [emailFlowIds, setEmailFlowIds] = useState<string[]>([]);
@@ -612,6 +635,31 @@ export default function CollectEmailsClient({ displayName, handle, showName, onS
   const uploadFileRef = useRef<HTMLInputElement>(null);
   const confirmationSubjectRef = useRef<HTMLInputElement>(null);
   const confirmationBodyRef = useRef<HTMLTextAreaElement>(null);
+
+  const processLeadFile = useCallback((file: File) => {
+    if (file.size > MAX_LEAD_FILE_BYTES) {
+      setFormErrors((p) => ({
+        ...p,
+        productFile: `File must be under ${Math.round(MAX_LEAD_FILE_BYTES / (1024 * 1024))} MB.`,
+      }));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = typeof reader.result === "string" ? reader.result : "";
+      if (!dataUrl.startsWith("data:")) {
+        setFormErrors((p) => ({
+          ...p,
+          productFile: "Could not read this file. Try PDF, ZIP, or an image.",
+        }));
+        return;
+      }
+      setUploadedFileDataUrl(dataUrl);
+      setUploadedFileName(file.name);
+      setFormErrors((p) => ({ ...p, productFile: undefined }));
+    };
+    reader.readAsDataURL(file);
+  }, []);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -783,7 +831,7 @@ export default function CollectEmailsClient({ displayName, handle, showName, onS
   };
 
   const goToOptionsTab = () => {
-    const e = validateProductStep(delivery, uploadedFileName, redirectUrl);
+    const e = validateProductStep(deliveryMode, uploadedFileDataUrl, uploadedFileName, redirectUrl);
     if (productStepHasErrors(e)) {
       setFormErrors((prev) => ({
         ...prev,
@@ -827,7 +875,7 @@ export default function CollectEmailsClient({ displayName, handle, showName, onS
       buttonText,
       customFields
     );
-    const productErrors = validateProductStep(delivery, uploadedFileName, redirectUrl);
+    const productErrors = validateProductStep(deliveryMode, uploadedFileDataUrl, uploadedFileName, redirectUrl);
     const optionsErrors = validateOptionsStep(confirmationSubject, confirmationBody);
     const e: CollectEmailsFormErrors = {
       ...thumbErrors,
@@ -928,6 +976,23 @@ export default function CollectEmailsClient({ displayName, handle, showName, onS
 
   const buildPayload = (saveStatus: "draft" | "published", flowIds?: string[]) => {
     const flows = flowIds ?? emailFlowIds;
+    const hasFile = Boolean(uploadedFileDataUrl?.trim());
+    const urlTrim = redirectUrl.trim();
+    const hasUrl = Boolean(urlTrim);
+
+    const digital_delivery =
+      deliveryMode === "upload"
+        ? hasFile
+          ? "upload"
+          : "none"
+        : hasUrl
+          ? "redirect"
+          : "none";
+    const digital_redirect_url = deliveryMode === "upload" ? "" : urlTrim;
+    const digital_file_data_url = deliveryMode === "upload" && hasFile ? uploadedFileDataUrl : "";
+    const digital_file_name =
+      deliveryMode === "upload" && hasFile && uploadedFileName?.trim() ? uploadedFileName : "";
+
     return {
       id: productId || undefined,
       product_type: "emails",
@@ -937,12 +1002,13 @@ export default function CollectEmailsClient({ displayName, handle, showName, onS
       title: title.slice(0, TITLE_MAX),
       subtitle: subtitle.slice(0, SUB_MAX),
       button_text: buttonText.slice(0, BTN_MAX),
-      price_numeric: 9.99,
+      price_numeric: 0,
       thumbnail_url: thumbnailDataUrl,
       checkout_json: {
-        digital_delivery: delivery,
-        digital_file_name: uploadedFileName,
-        digital_redirect_url: redirectUrl,
+        digital_delivery,
+        digital_file_name,
+        digital_file_data_url,
+        digital_redirect_url,
       },
       options_json: {
         collect_emails: true,
@@ -1269,75 +1335,124 @@ export default function CollectEmailsClient({ displayName, handle, showName, onS
             ref={uploadFileRef}
             type="file"
             className="hidden"
+            accept=".pdf,application/pdf,application/zip,image/*"
             onChange={(e) => {
               const file = e.target.files?.[0];
-              if (file) {
-                setUploadedFileName(file.name);
-                setFormErrors((p) => ({ ...p, productFile: undefined }));
-              }
               e.target.value = "";
+              if (file) processLeadFile(file);
             }}
             aria-hidden
           />
 
-          {/* Heading + toggle */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <h2 className="text-base font-bold text-slate-900">Upload Attachment &amp; Files</h2>
-            <div className="flex overflow-hidden rounded-lg border border-slate-200" style={{ gap: "5px", marginTop: "10px" }}>
+            <div className="flex shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
               <button
                 type="button"
                 onClick={() => {
-                  setDelivery("upload");
+                  setDeliveryMode("upload");
                   setFormErrors((p) => ({ ...p, redirectUrl: undefined }));
                 }}
-                className="px-4 py-2 text-sm font-semibold transition"
-                style={delivery === "upload" ? { backgroundColor: "#2563eb", color: "#fff" } : { backgroundColor: "transparent", color: "#475569" }}
+                className="rounded-md px-4 py-2 text-sm font-semibold transition"
+                style={
+                  deliveryMode === "upload"
+                    ? { backgroundColor: PURPLE, color: "#fff" }
+                    : { backgroundColor: "transparent", color: PURPLE }
+                }
               >
                 Upload File
               </button>
               <button
                 type="button"
                 onClick={() => {
-                  setDelivery("redirect");
+                  setDeliveryMode("redirect");
                   setFormErrors((p) => ({ ...p, productFile: undefined }));
                 }}
-                className="px-4 py-2 text-sm font-semibold transition"
-                style={delivery === "redirect" ? { backgroundColor: "#2563eb", color: "#fff" } : { backgroundColor: "transparent", color: "#475569" }}
+                className="rounded-md px-4 py-2 text-sm font-semibold transition"
+                style={
+                  deliveryMode === "redirect"
+                    ? { backgroundColor: PURPLE, color: "#fff" }
+                    : { backgroundColor: "transparent", color: PURPLE }
+                }
               >
                 Redirect to URL
               </button>
             </div>
           </div>
 
-          {/* Upload box */}
-          {delivery === "upload" ? (
-            <div>
+          {deliveryMode === "upload" ? (
+            <>
               <div
-                className={`flex min-h-[180px] flex-col items-center justify-center gap-4 rounded-2xl border-2 border-dashed bg-slate-50/80 px-6 py-10 ${
-                  formErrors.productFile ? "border-rose-400 ring-1 ring-rose-100" : "border-slate-200"
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    uploadFileRef.current?.click();
+                  }
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const file = e.dataTransfer.files?.[0];
+                  if (file) processLeadFile(file);
+                }}
+                className={`flex min-h-[200px] cursor-pointer flex-col items-center justify-center gap-4 rounded-2xl border-2 border-dashed px-6 py-10 transition hover:border-slate-300 ${
+                  formErrors.productFile
+                    ? "border-rose-400 bg-rose-50/40 ring-1 ring-rose-100"
+                    : "border-slate-200 bg-[#f7f5fc]"
                 }`}
+                onClick={() => uploadFileRef.current?.click()}
               >
-                <p className="text-sm font-medium text-slate-500">
-                  {uploadedFileName ?? "Drag Your File(s) Here"}
+                <p className="pointer-events-none text-center text-sm font-medium text-slate-500">
+                  Drag Your File(s) Here
                 </p>
+                {uploadedFileName ? (
+                  <p className="pointer-events-none max-w-full truncate px-2 text-center text-xs font-medium text-slate-700">
+                    {uploadedFileName}
+                  </p>
+                ) : null}
                 <button
                   type="button"
-                  onClick={() => uploadFileRef.current?.click()}
-                  className="rounded-lg border-2 px-6 py-2.5 text-sm font-bold transition hover:bg-blue-50"
-                  style={{ borderColor: "#2563eb", color: "#2563eb" }}
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    uploadFileRef.current?.click();
+                  }}
+                  className="rounded-lg border-2 bg-white px-6 py-2.5 text-sm font-bold shadow-sm transition hover:bg-slate-50"
+                  style={{ borderColor: PURPLE, color: PURPLE }}
                 >
                   Upload
                 </button>
+                {uploadedFileDataUrl ? (
+                  <button
+                    type="button"
+                    onClick={(ev) => {
+                      ev.stopPropagation();
+                      setUploadedFileDataUrl(null);
+                      setUploadedFileName(null);
+                    }}
+                    className="text-sm font-semibold text-slate-500 underline hover:text-slate-700"
+                  >
+                    Remove file
+                  </button>
+                ) : null}
               </div>
-              {formErrors.productFile ? <p className="mt-2 text-xs font-medium text-rose-600">{formErrors.productFile}</p> : null}
-            </div>
+              {formErrors.productFile ? (
+                <p className="text-xs font-medium text-rose-600">{formErrors.productFile}</p>
+              ) : null}
+            </>
           ) : (
-            <div className="mt-2">
-              <label className="text-sm font-semibold text-slate-800" htmlFor="redirect-url">
+            <div>
+              <label className="text-sm font-semibold text-slate-800" htmlFor="redirect-url-only">
                 Redirect URL
               </label>
+              <p className="mt-0.5 text-xs text-slate-500">Visitors are sent here after they submit (no file upload).</p>
               <input
-                id="redirect-url"
+                id="redirect-url-only"
                 type="url"
                 placeholder="https://"
                 value={redirectUrl}
@@ -1346,13 +1461,15 @@ export default function CollectEmailsClient({ displayName, handle, showName, onS
                   setFormErrors((p) => ({ ...p, redirectUrl: undefined }));
                 }}
                 aria-invalid={Boolean(formErrors.redirectUrl)}
-                className={`mt-1 w-full rounded-xl border px-4 py-3 text-[15px] outline-none focus:ring-2 ${
+                className={`mt-2 w-full rounded-xl border px-4 py-3 text-[15px] outline-none focus:ring-2 ${
                   formErrors.redirectUrl
                     ? "border-rose-500 focus:border-rose-500 focus:ring-rose-100"
                     : "border-slate-200 focus:border-violet-400 focus:ring-violet-100"
                 }`}
               />
-              {formErrors.redirectUrl ? <p className="mt-1.5 text-xs font-medium text-rose-600">{formErrors.redirectUrl}</p> : null}
+              {formErrors.redirectUrl ? (
+                <p className="mt-1.5 text-xs font-medium text-rose-600">{formErrors.redirectUrl}</p>
+              ) : null}
             </div>
           )}
         </div>
