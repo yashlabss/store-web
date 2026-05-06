@@ -3052,10 +3052,18 @@ export default function AddProductClient({
         ref={digitalFileRef}
         type="file"
         className="hidden"
-        accept="*/*"
+        accept=".pdf,application/pdf"
         onChange={(e) => {
           const file = e.target.files?.[0];
           if (!file) return;
+          const mime = String(file.type || "").toLowerCase();
+          const name = String(file.name || "").toLowerCase();
+          const allowedByMime = mime === "application/pdf";
+          const allowedByExt = /\.pdf$/i.test(name);
+          if (!allowedByMime && !allowedByExt) {
+            setToast("Unsupported file type. Allowed: PDF.");
+            return;
+          }
           setDigitalFileName(file.name);
           const reader = new FileReader();
           reader.onload = () => {
@@ -5788,7 +5796,7 @@ export default function AddProductClient({
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                disabled={saving || Boolean(toast)}
+                disabled={saving}
                 onClick={() => void handleSaveDraft()}
                 className="inline-flex items-center justify-center gap-2 border-2 bg-white px-6 py-3 text-sm font-bold transition disabled:opacity-50"
                 style={{ borderRadius: "8px", borderColor: PURPLE, color: PURPLE }}
@@ -5797,7 +5805,7 @@ export default function AddProductClient({
               </button>
               <button
                 type="button"
-                disabled={saving || Boolean(toast)}
+                disabled={saving}
                 onClick={() => void handlePublish()}
                 className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
                 style={{ backgroundColor: PURPLE }}
@@ -5820,7 +5828,7 @@ export default function AddProductClient({
         <div className="flex flex-wrap items-center justify-end gap-3">
           <button
             type="button"
-            disabled={saving || Boolean(toast)}
+            disabled={saving}
             onClick={() => void handleSaveDraft()}
             className="inline-flex items-center justify-center gap-2 border-2 bg-white px-6 py-3 text-sm font-bold transition disabled:opacity-50"
             style={{ borderRadius: "8px", borderColor: PURPLE, color: PURPLE }}
@@ -5834,7 +5842,7 @@ export default function AddProductClient({
           {activeTab === "checkout" ? (
             <button
               type="button"
-              disabled={saving || Boolean(toast)}
+                disabled={saving}
               onClick={isWebinarFlow ? goToWebinarTab : () => void handlePublish()}
               className={
                 isWebinarFlow
@@ -5849,7 +5857,7 @@ export default function AddProductClient({
           {activeTab === "course" ? (
             <button
               type="button"
-              disabled={saving || Boolean(toast)}
+              disabled={saving}
               onClick={() => void handlePublish()}
               className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
               style={{ backgroundColor: PURPLE }}
@@ -5860,7 +5868,7 @@ export default function AddProductClient({
           {activeTab === "webinar" ? (
             <button
               type="button"
-              disabled={saving || Boolean(toast)}
+              disabled={saving}
               onClick={() => void handlePublish()}
               className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
               style={{ backgroundColor: PURPLE }}
@@ -5871,7 +5879,7 @@ export default function AddProductClient({
           {activeTab === "options" ? (
             <button
               type="button"
-              disabled={saving || Boolean(toast)}
+              disabled={saving}
               onClick={() => void handlePublish()}
               className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
               style={{ backgroundColor: PURPLE }}
@@ -5882,7 +5890,7 @@ export default function AddProductClient({
           {activeTab === "availability" ? (
             <button
               type="button"
-              disabled={saving || Boolean(toast)}
+              disabled={saving}
               onClick={() => void handlePublish()}
               className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
               style={{ backgroundColor: PURPLE }}
@@ -5894,7 +5902,7 @@ export default function AddProductClient({
             isUrlMediaFlow || isAffiliateFlow ? (
               <button
                 type="button"
-                disabled={saving || Boolean(toast)}
+                disabled={saving}
                 onClick={() => void handlePublish()}
                 className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
                 style={{ backgroundColor: PURPLE }}
@@ -5904,7 +5912,7 @@ export default function AddProductClient({
             ) : (
               <button
                 type="button"
-                disabled={saving || Boolean(toast)}
+                disabled={saving}
                 onClick={goToCheckoutTab}
                 className="bg-blue-600 px-12 py-3 text-sm font-bold text-white transition hover:bg-blue-400 disabled:opacity-50"
                 style={{ borderRadius: "8px" }}

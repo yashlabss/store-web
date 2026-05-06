@@ -26,3 +26,4 @@ export const API_PUBLIC_BASE = API_BASE_URL
 export const API_WEBINAR_HOST_BASE = API_BASE_URL
   ? `${API_BASE_URL}/api/webinar-host`
   : "/api/webinar-host";
+
