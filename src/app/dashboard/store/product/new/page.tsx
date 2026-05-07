@@ -14,6 +14,8 @@ type UserRow = {
   full_name?: string;
   country_code?: string;
   phone?: string;
+  zoom_connected?: boolean;
+  zoom_plan_type?: number | null;
 };
 
 function LoadingShell() {
@@ -122,7 +124,9 @@ function AddProductPageInner() {
     );
   }
 
-  return <AddProductClient user={user} onSignOut={signOut} />;
+  return (
+    <AddProductClient user={user} onSignOut={signOut} onProfileReload={loadUser} />
+  );
 }
 
 export default function AddProductPage() {

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import DashboardShell, { PURPLE } from "../dashboard/DashboardShell";
 import {
@@ -13,7 +13,8 @@ import {
   IconSliders,
   IconStoreTab,
 } from "../dashboard/dashboardIcons";
-import { API_PRODUCTS_BASE } from "../../lib/api";
+import { API_AUTH_BASE, API_PRODUCTS_BASE } from "../../lib/api";
+import { networkErrorMessage } from "../../lib/networkError";
 import { DISPLAY_STORE_DOMAIN, publicStoreUrl } from "../../lib/publicStorePath";
 import {
   normalizeProductCategoryKey,
@@ -702,6 +703,9 @@ type UserRow = {
   email: string;
   username?: string;
   full_name?: string;
+  /** From GET /api/auth/user (store_admins.zoom_connected). */
+  zoom_connected?: boolean;
+  zoom_plan_type?: number | null;
 };
 
 type TabKey = "thumbnail" | "checkout" | "webinar" | "course" | "availability" | "options";
@@ -983,9 +987,12 @@ function CheckoutMobilePreview({
 export default function AddProductClient({
   user,
   onSignOut,
+  onProfileReload,
 }: {
   user: UserRow;
   onSignOut: () => void;
+  /** Refetch GET /api/auth/user after Zoom connect/disconnect. */
+  onProfileReload?: () => void | Promise<void>;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -1124,6 +1131,8 @@ export default function AddProductClient({
   const courseBuilderVideoFileRef = useRef<HTMLInputElement>(null);
 
   const [productId, setProductId] = useState<string | null>(null);
+  /** When true, saves include options_json.webinar (slots, etc.). Must not rely on ?kind=webinar alone — editing uses ?id= only. */
+  const [savedProductIsWebinar, setSavedProductIsWebinar] = useState(false);
   const [listingStatus, setListingStatus] = useState<"draft" | "published">("draft");
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
@@ -1371,6 +1380,9 @@ export default function AddProductClient({
         : {};
     const hasWebinarConfig =
       Boolean(optionsObj.webinar) && typeof optionsObj.webinar === "object";
+    setSavedProductIsWebinar(
+      String(p.product_type || "").toLowerCase() === "webinar" || hasWebinarConfig,
+    );
     const tab =
       (p.product_type === "webinar" || hasWebinarConfig) &&
       p.active_tab === "checkout"
@@ -1682,6 +1694,7 @@ export default function AddProductClient({
     const isCourse = kind === "course";
     const isUrlMedia = kind === "url-media";
     const isAffiliate = kind === "affiliate";
+    setSavedProductIsWebinar(isWebinar);
     setProductId(null);
     setListingStatus("draft");
     setActiveTab("thumbnail");
@@ -1905,7 +1918,7 @@ export default function AddProductClient({
           ? {
               webinar: {
                 slots: webinarSlots,
-                meeting_location: meetingLocation,
+                meeting_location: "Zoom Meeting",
                 time_zone: timeZone,
                 duration_mins: durationMins,
                 max_attendees: maxAttendees,
@@ -1936,6 +1949,7 @@ export default function AddProductClient({
   },
   [
     productId,
+    savedProductIsWebinar,
     activeTab,
     style,
     title,
@@ -2190,58 +2204,6 @@ export default function AddProductClient({
     },
     [uploadAudioToStorage]
   );
-
-  const generateWebinarLinksAndNotify = useCallback(async () => {
-    if (!token) {
-      setSaveMsg("Please log in again.");
-      return;
-    }
-    if (!productId) {
-      setSaveMsg("Save this webinar product first, then generate links.");
-      return;
-    }
-    setWebinarBackfillRunning(true);
-    setWebinarBackfillMsg("");
-    try {
-      const res = await fetch(`${API_PRODUCTS_BASE}/${productId}/webinar/backfill-links`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          force_regenerate: false,
-          resend_existing: true,
-        }),
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        ok?: boolean;
-        message?: string;
-        result?: {
-          total?: number;
-          links_generated?: number;
-          links_existing?: number;
-          buyer_emails_sent?: number;
-          buyer_whatsapp_accepted?: number;
-          owner_email_sent?: number;
-          errors?: Array<unknown>;
-        };
-      };
-      if (!res.ok || !data.ok || !data.result) {
-        throw new Error(data.message || "Could not generate webinar links.");
-      }
-      const r = data.result;
-      setWebinarBackfillMsg(
-        `Processed ${r.total || 0} registrations. Generated ${r.links_generated || 0} new links, sent ${r.buyer_emails_sent || 0} buyer emails, ${r.buyer_whatsapp_accepted || 0} buyer WhatsApp messages, owner email ${r.owner_email_sent ? "sent" : "not sent"}.`
-      );
-    } catch (e) {
-      setWebinarBackfillMsg(
-        e instanceof Error ? e.message : "Could not generate webinar links."
-      );
-    } finally {
-      setWebinarBackfillRunning(false);
-    }
-  }, [token, productId]);
 
   const readImageFileAsDataUrl = (file: File): Promise<string | null> =>
     new Promise((resolve) => {
@@ -3186,6 +3148,36 @@ export default function AddProductClient({
       (/webinar/i.test(title) ||
         /webinar/i.test(subtitle) ||
         /claim your spot/i.test(buttonText)));
+  const zoomPublishBlocked = isWebinarFlow && user.zoom_connected !== true;
+
+  const handleZoomDisconnect = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_AUTH_BASE}/zoom/disconnect`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = (await res.json().catch(() => ({}))) as { message?: string };
+      if (!res.ok) throw new Error(data.message || "Could not disconnect Zoom.");
+      await onProfileReload?.();
+      setToast("Zoom disconnected.");
+      window.setTimeout(() => setToast(null), 3200);
+    } catch (err) {
+      setToast(networkErrorMessage(err));
+      window.setTimeout(() => setToast(null), 4500);
+    }
+  }, [token, onProfileReload]);
+
+  const goToZoomOAuthConnect = useCallback(() => {
+    if (!token) {
+      setToast("Sign in again to connect Zoom.");
+      return;
+    }
+    window.location.assign(
+      `${API_AUTH_BASE}/zoom/connect?token=${encodeURIComponent(token)}`
+    );
+  }, [token]);
+
   const isUrlMediaFlow =
     (searchParams.get("kind") || "").toLowerCase() === "url-media";
   const isAffiliateFlow =
@@ -3309,7 +3301,7 @@ export default function AddProductClient({
         e.webinarSlots = "Duplicate webinar slots are not allowed.";
       }
     }
-    if (!durationMins.trim() || !timeZone.trim() || !meetingLocation.trim()) {
+    if (!durationMins.trim() || !timeZone.trim()) {
       e.webinarSettings = "Complete webinar settings before publishing.";
     } else if (!Number.isFinite(Number(maxAttendees)) || Number(maxAttendees) < 1) {
       e.webinarSettings = "Seats per slot must be at least 1.";
@@ -5012,19 +5004,6 @@ export default function AddProductClient({
                 <option>UTC - Coordinated Universal Time</option>
                 <option>EST - New York | UTC -5</option>
               </select>
-              <select
-                value={meetingLocation}
-                onChange={(e) => {
-                  setMeetingLocation(e.target.value);
-                  setProductFormErrors((p) => ({ ...p, webinarSettings: undefined }));
-                }}
-                className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-[15px] outline-none"
-              >
-                <option>Default</option>
-                <option>Zoom Meeting</option>
-                <option>Google Meet</option>
-                <option>Custom Location</option>
-              </select>
               <div className="flex items-center rounded-xl border border-slate-200 bg-white px-4 py-3">
                 <input
                   value={maxAttendees}
@@ -5037,26 +5016,50 @@ export default function AddProductClient({
                 <span className="text-sm text-slate-400">seats/slot</span>
               </div>
             </div>
-          </section>
 
-          <section className="rounded-xl border border-slate-200 bg-white p-4">
-            <h2 className="text-sm font-semibold text-slate-900">Generate Zoom links and notify buyers</h2>
-            <p className="mt-1 text-xs text-slate-500">
-              Creates missing Zoom links for this webinar and sends the join link to buyers (email + WhatsApp) and your owner email.
-            </p>
-            <button
-              type="button"
-              disabled={webinarBackfillRunning || !token}
-              onClick={() => {
-                void generateWebinarLinksAndNotify();
-              }}
-              className="mt-3 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {webinarBackfillRunning ? "Generating..." : "Generate links and send notifications"}
-            </button>
-            {webinarBackfillMsg ? (
-              <p className="mt-2 text-xs font-medium text-slate-700">{webinarBackfillMsg}</p>
-            ) : null}
+            <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+              <h3 className="text-sm font-semibold text-slate-900">Video platform</h3>
+              {user.zoom_connected === true ? (
+                <div className="mt-3 space-y-2">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
+                        <span aria-hidden>✓</span> Zoom connected
+                      </span>
+                      <p className="text-sm text-slate-600">
+                        Meetings are automatically created on your Zoom account when someone
+                        registers.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleZoomDisconnect()}
+                      className="shrink-0 text-sm font-medium text-slate-600 underline decoration-slate-300 underline-offset-2 hover:text-slate-900"
+                    >
+                      Disconnect
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-3 space-y-3">
+                  <div
+                    className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-950"
+                    role="status"
+                  >
+                    Zoom not connected. You must connect your Zoom account before publishing this
+                    webinar.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={goToZoomOAuthConnect}
+                    className="inline-flex items-center justify-center rounded-lg border-2 bg-white px-5 py-2.5 text-sm font-bold transition hover:bg-slate-50"
+                    style={{ borderColor: PURPLE, color: PURPLE }}
+                  >
+                    Connect Zoom Account
+                  </button>
+                </div>
+              )}
+            </div>
           </section>
         </div>
       ) : activeTab === "course" ? (
@@ -6233,6 +6236,11 @@ export default function AddProductClient({
               </button>
             </div>
           </div>
+          {zoomPublishBlocked ? (
+            <p className="mt-2 text-right text-xs font-medium text-amber-800">
+              Connect your Zoom account to publish.
+            </p>
+          ) : null}
         </div>
       ) : (
       <div className="mt-10 border-t border-slate-100 pt-8">
@@ -6341,6 +6349,11 @@ export default function AddProductClient({
             )
           ) : null}
         </div>
+        {zoomPublishBlocked ? (
+          <p className="mt-2 text-right text-xs font-medium text-amber-800">
+            Connect your Zoom account to publish.
+          </p>
+        ) : null}
       </div>
       )}
     </DashboardShell>
