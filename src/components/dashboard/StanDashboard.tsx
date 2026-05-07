@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSearchParams } from "next/navigation";
 import {
@@ -14,6 +14,11 @@ import { publicStoreUrl } from "../../lib/publicStorePath";
 import { API_PRODUCTS_BASE } from "../../lib/api";
 import { networkErrorMessage } from "../../lib/networkError";
 import DashboardShell, { PURPLE } from "./DashboardShell";
+import {
+  PRODUCT_CATEGORIES,
+  normalizeProductCategoryKey,
+  type ProductCategoryKey,
+} from "../../lib/productCategories";
 
 type Props = {
   displayName: string;
@@ -39,6 +44,104 @@ type ProductRow = {
 };
 
 const DELETED_PRODUCT_IDS_KEY = "stan_deleted_product_ids";
+const DASHBOARD_FILTER_CATEGORY_KEYS = new Set<ProductCategoryKey>([
+  "all",
+  "collect_emails_applications",
+  "digital_product",
+  "coaching",
+  "custom_product",
+  "ecourse",
+  "recurring_membership",
+  "webinar",
+  "community",
+  "url_media",
+  "stan_affiliate",
+]);
+const DASHBOARD_FILTER_CATEGORIES = PRODUCT_CATEGORIES.filter((cat) =>
+  DASHBOARD_FILTER_CATEGORY_KEYS.has(cat.key as ProductCategoryKey)
+);
+const CATEGORY_KEY_SET = new Set<ProductCategoryKey>(
+  PRODUCT_CATEGORIES.map((x) => x.key).filter((x): x is ProductCategoryKey => x !== "all")
+);
+
+function detectProductCategory(p: ProductRow): ProductCategoryKey {
+  const toDashboardCategory = (key: ProductCategoryKey): ProductCategoryKey => {
+    if (key === "audio" || key === "video" || key === "pdf") return "digital_product";
+    if (key === "uncategorized") return "digital_product";
+    return key;
+  };
+  const options = (p.options_json || {}) as Record<string, unknown>;
+  const checkout = (p.checkout_json || {}) as Record<string, unknown>;
+  const explicitCategory =
+    normalizeProductCategoryKey(options.category) ||
+    normalizeProductCategoryKey(options.category_key) ||
+    normalizeProductCategoryKey(options.product_category) ||
+    normalizeProductCategoryKey(checkout.category) ||
+    normalizeProductCategoryKey(checkout.product_category);
+  if (explicitCategory) return toDashboardCategory(explicitCategory);
+  const t = `${String(p.title || "")} ${String(p.subtitle || "")} ${String(p.button_text || "")}`.toLowerCase();
+  const digitalDelivery = String(checkout.digital_delivery || "").toLowerCase();
+  const redirectUrl = String(checkout.digital_redirect_url || "").trim();
+  const hasDigitalFile = Boolean(checkout.digital_file_name || checkout.digital_file_data_url);
+  const fileName = String(checkout.digital_file_name || "").toLowerCase();
+  const dataUrl = String(checkout.digital_file_data_url || "").toLowerCase();
+
+  if (
+    options.collect_emails === true ||
+    Array.isArray(options.custom_fields) ||
+    /collect emails?|email list|application|apply now|submit.*download/.test(t)
+  ) {
+    return "collect_emails_applications";
+  }
+  if (options.webinar || /webinar|masterclass|live session/.test(t)) return "webinar";
+  if (options.availability || /coaching|consultation|book call|1:1/.test(t)) return "coaching";
+  if (Array.isArray(options.lessons) || options.course || /course|module|lesson/.test(t)) return "ecourse";
+  if (options.membership || /membership|subscription|monthly|recurring/.test(t)) return "recurring_membership";
+  if (options.community || /community|discord|telegram|private group/.test(t)) return "community";
+  if (options.affiliate || options.affiliate_url || /affiliate|refer/.test(t)) return "stan_affiliate";
+  if (digitalDelivery === "redirect" || redirectUrl || /url|media link|external link/.test(t)) return "url_media";
+  if (/\.mp3|\.wav|\.m4a|\.aac|\.ogg|\.flac/.test(fileName) || /^data:audio\//.test(dataUrl)) return "digital_product";
+  if (/\.mp4|\.webm|\.mov|\.m3u8/.test(fileName) || /^data:video\//.test(dataUrl)) return "digital_product";
+  if (/\.pdf/.test(fileName) || /^data:application\/pdf/.test(dataUrl)) return "digital_product";
+  if (/template|notion|canva|sheet|kit/.test(t)) return "custom_product";
+  if (hasDigitalFile || /download|digital|product file|ebook|pdf|video|audio/.test(t)) return "digital_product";
+  return "digital_product";
+}
+
+function CategoryFilterChips({
+  categories,
+  activeCategory,
+  onChange,
+}: {
+  categories: Array<{ key: ProductCategoryKey; label: string }>;
+  activeCategory: ProductCategoryKey;
+  onChange: (key: ProductCategoryKey) => void;
+}) {
+  return (
+    <div className="mb-4 -mx-1 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="flex w-max items-center gap-2 py-1">
+        {categories.map((cat) => {
+          const active = activeCategory === cat.key;
+          return (
+            <button
+              key={cat.key}
+              type="button"
+              onClick={() => onChange(cat.key)}
+              className={`whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-semibold transition-all duration-200 ${
+                active
+                  ? "border-[#6b46ff] bg-gradient-to-r from-[#6b46ff] to-[#8b5cf6] text-white shadow-[0_4px_14px_rgba(107,70,255,0.35)]"
+                  : "border-[#e7dcc9] bg-white text-slate-600 hover:border-[#cdbf9f] hover:bg-[#faf7f1] hover:text-slate-900"
+              }`}
+              aria-pressed={active}
+            >
+              {cat.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function isLandingProduct(p: ProductRow): boolean {
   const anyP = p as ProductRow & {
@@ -504,6 +607,8 @@ function ProductListRow({
 export default function StanDashboard({ displayName, handle, showName, onSignOut }: Props) {
   const searchParams = useSearchParams();
   const activeTab = searchParams.get("tab") === "landing" ? "landing" : "store";
+  const [activeCategory, setActiveCategory] = useState<ProductCategoryKey>("all");
+  const [isFiltering, setIsFiltering] = useState(false);
   const [products, setProducts] = useState<ProductRow[] | null>(null);
   const [deletedProductIds, setDeletedProductIds] = useState<string[]>(() => readDeletedProductIds());
   const [listError, setListError] = useState("");
@@ -512,6 +617,27 @@ export default function StanDashboard({ displayName, handle, showName, onSignOut
     products == null
       ? null
       : products.filter((p) => (activeTab === "landing" ? isLandingProduct(p) : !isLandingProduct(p)));
+  const filteredProducts = useMemo(() => {
+    if (!visibleProducts) return visibleProducts;
+    if (activeCategory === "all") return visibleProducts;
+    return visibleProducts.filter((p) => detectProductCategory(p) === activeCategory);
+  }, [visibleProducts, activeCategory]);
+  const categoryTabs = useMemo(
+    () => DASHBOARD_FILTER_CATEGORIES as Array<{ key: ProductCategoryKey; label: string }>,
+    []
+  );
+
+  useEffect(() => {
+    setIsFiltering(true);
+    const timer = window.setTimeout(() => setIsFiltering(false), 180);
+    return () => window.clearTimeout(timer);
+  }, [activeCategory]);
+  useEffect(() => {
+    const validKeys = new Set(categoryTabs.map((x) => x.key));
+    if (!validKeys.has(activeCategory)) {
+      setActiveCategory("all");
+    }
+  }, [categoryTabs, activeCategory]);
 
   const persistDeletedProductId = useCallback((id: string) => {
     setDeletedProductIds((prev) => {
@@ -892,6 +1018,12 @@ export default function StanDashboard({ displayName, handle, showName, onSignOut
             Edit Design
             <IconSparkle />
           </button>
+          <Link
+            href="/dashboard/store/product/new?kind=affiliate"
+            className="ml-auto mb-2 inline-flex items-center rounded-full border border-[#6b46ff]/30 bg-[#6b46ff]/10 px-3.5 py-1.5 text-xs font-semibold text-[#6b46ff] transition-all duration-200 hover:border-[#6b46ff] hover:bg-[#6b46ff] hover:text-white hover:shadow-[0_6px_16px_rgba(107,70,255,0.3)] sm:text-sm"
+          >
+            Refer and Earn
+          </Link>
         </div>
 
         {activeTab === "store" ? (
@@ -937,17 +1069,32 @@ export default function StanDashboard({ displayName, handle, showName, onSignOut
           {activeTab === "store" ? (
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#b08d57]">Products</h2>
           ) : null}
+          {activeTab === "store" ? (
+            <CategoryFilterChips
+              categories={categoryTabs}
+              activeCategory={activeCategory}
+              onChange={setActiveCategory}
+            />
+          ) : null}
           {visibleProducts === null ? (
             <ul className="flex flex-col gap-3">
               <ProductListRowSkeleton />
             </ul>
-          ) : visibleProducts.length === 0 ? (
+          ) : filteredProducts.length === 0 ? (
             <p className="flex min-h-[80px] items-center justify-center rounded-2xl border border-dashed border-[#d8c7ab] bg-[#fbf7f0] px-4 text-center text-sm text-slate-500">
-              {activeTab === "landing" ? "No landing pages yet. Add one below." : "No products yet. Add one below."}
+              {activeTab === "landing"
+                ? "No landing pages yet. Add one below."
+                : activeCategory === "all"
+                  ? "No products yet. Add one below."
+                  : "No products found in this category."}
             </p>
           ) : (
-            <ul className="flex flex-col gap-3">
-              {visibleProducts.map((p) => (
+            <ul
+              className={`flex flex-col gap-3 transition-all duration-200 ${
+                isFiltering ? "scale-[0.995] opacity-70" : "scale-100 opacity-100"
+              }`}
+            >
+              {filteredProducts.map((p) => (
                 <ProductListRow
                   key={p.id}
                   p={p}

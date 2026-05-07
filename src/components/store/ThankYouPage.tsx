@@ -12,6 +12,8 @@ type Delivery = {
   type: string;
   file_name: string | null;
   redirect_url: string | null;
+  preview_url?: string | null;
+  preview_type?: "pdf" | "audio" | "video" | null;
   download_links?: Array<{ label: string; url: string }>;
 };
 
@@ -461,6 +463,20 @@ export default function ThankYouPage() {
                 style={{ backgroundColor: PURPLE }}
               >
                 Open download link
+              </a>
+            ) : delivery.preview_url ? (
+              <a
+                href={delivery.preview_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 flex w-full items-center justify-center rounded-full py-3.5 text-[15px] font-bold text-white transition hover:opacity-95"
+                style={{ backgroundColor: PURPLE }}
+              >
+                {delivery.preview_type === "audio"
+                  ? "Listen Now"
+                  : delivery.preview_type === "video"
+                    ? "Watch Now"
+                    : "View & Download"}
               </a>
             ) : firstDownload?.url ? (
               <button
