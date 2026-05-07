@@ -13,7 +13,7 @@ type Delivery = {
   file_name: string | null;
   redirect_url: string | null;
   preview_url?: string | null;
-  preview_type?: "pdf" | "audio" | null;
+  preview_type?: "pdf" | "audio" | "video" | null;
   download_links?: Array<{ label: string; url: string }>;
 };
 
@@ -473,7 +473,9 @@ export default function ThankYouPage() {
                 style={{ backgroundColor: PURPLE }}
               >
                 {delivery.preview_type === "audio"
-                    ? "Listen Now"
+                  ? "Listen Now"
+                  : delivery.preview_type === "video"
+                    ? "Watch Now"
                     : "View & Download"}
               </a>
             ) : firstDownload?.url ? (
