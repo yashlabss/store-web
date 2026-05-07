@@ -796,6 +796,10 @@ export default function PublicStorePage({ username }: { username: string }) {
               {products.map((p) => {
                 const price = displayPrice(p);
                 const isLeadCapture = isLeadCaptureProduct(p);
+                const isWebinarCard = isWebinarProduct(p);
+                const webinarSlotsList = getWebinarSlots(p);
+                const webinarRegisterDisabled =
+                  isWebinarCard && webinarSlotsList.length === 0;
                 const form = getLeadForm(p.id, p);
                 const customFields = getCustomFields(p);
                 const fe = leadFieldErrors[p.id];

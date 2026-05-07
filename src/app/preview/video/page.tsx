@@ -35,12 +35,35 @@ export default function VideoPreviewPage() {
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(1);
   const [authToken, setAuthToken] = useState("");
+  const [downloading, setDownloading] = useState(false);
 
   const selectedSource = useMemo(() => {
     const exact = sources.find((s) => s.quality === selectedQuality);
     return exact || sources[0] || null;
   }, [sources, selectedQuality]);
   const downloadUrl = `${API_PUBLIC_BASE}/media/${encodeURIComponent(token)}?download=1`;
+
+  const triggerDownload = useCallback(async () => {
+    if (!downloadUrl || downloading) return;
+    try {
+      setDownloading(true);
+      const res = await fetch(downloadUrl, { method: "GET", cache: "no-store" });
+      if (!res.ok) throw new Error("Download failed.");
+      const blob = await res.blob();
+      const objectUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = "video.mp4";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(objectUrl);
+    } catch {
+      setError("Could not download video. Please try again.");
+    } finally {
+      setDownloading(false);
+    }
+  }, [downloadUrl, downloading]);
 
   const saveProgress = useCallback(
     async (force = false) => {
@@ -274,12 +297,14 @@ export default function VideoPreviewPage() {
             <span className="text-slate-300">Time Left</span>
             <span>{Number.isFinite(duration) && duration > 0 ? formatClock(timeRemaining) : "—"}</span>
           </div>
-          <a
-            href={downloadUrl}
+          <button
+            type="button"
+            onClick={() => void triggerDownload()}
+            disabled={downloading}
             className="ml-auto rounded-md border border-indigo-500 bg-indigo-600 px-3 py-1.5 font-semibold text-white hover:bg-indigo-500"
           >
-            Download
-          </a>
+            {downloading ? "Downloading..." : "Download"}
+          </button>
         </div>
         <p className="mt-3 text-xs text-slate-400">
           Keyboard shortcuts: Space/K (play/pause), J/L (seek), M (mute), F (fullscreen), C (captions).

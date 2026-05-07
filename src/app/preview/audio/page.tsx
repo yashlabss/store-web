@@ -62,8 +62,31 @@ export default function AudioPreviewPage() {
   const [volume, setVolume] = useState(1);
   const [authToken, setAuthToken] = useState("");
   const [isPlaying, setIsPlaying] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   const downloadUrl = `${API_PUBLIC_BASE}/media/${encodeURIComponent(token)}?download=1`;
+
+  const triggerDownload = useCallback(async () => {
+    if (!downloadUrl || downloading) return;
+    try {
+      setDownloading(true);
+      const res = await fetch(downloadUrl, { method: "GET", cache: "no-store" });
+      if (!res.ok) throw new Error("Download failed.");
+      const blob = await res.blob();
+      const objectUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = "audio.mp3";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(objectUrl);
+    } catch {
+      setPlaybackError("Could not download audio. Please try again.");
+    } finally {
+      setDownloading(false);
+    }
+  }, [downloadUrl, downloading]);
 
   const effectiveDuration = useMemo(() => {
     if (Number.isFinite(duration) && duration > 0) return duration;
@@ -547,13 +570,14 @@ export default function AudioPreviewPage() {
             </div>
 
             <div className="flex justify-center border-t border-slate-800 pt-4">
-              <a
-                href={downloadUrl}
-                download
+              <button
+                type="button"
+                onClick={() => void triggerDownload()}
+                disabled={downloading}
                 className="rounded-lg border border-emerald-600/60 bg-emerald-900/30 px-4 py-2 text-sm font-semibold text-emerald-200 hover:bg-emerald-900/50"
               >
-                Download (authorized)
-              </a>
+                {downloading ? "Downloading..." : "Download"}
+              </button>
             </div>
           </div>
         </div>
