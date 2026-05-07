@@ -15,6 +15,11 @@ import {
 } from "../dashboard/dashboardIcons";
 import { API_PRODUCTS_BASE } from "../../lib/api";
 import { DISPLAY_STORE_DOMAIN, publicStoreUrl } from "../../lib/publicStorePath";
+import {
+  normalizeProductCategoryKey,
+  inferCategoryFromKind,
+  type ProductCategoryKey,
+} from "../../lib/productCategories";
 
 const TITLE_MAX = 50;
 const SUB_MAX = 100;
@@ -262,6 +267,7 @@ function validateReviewsInput(reviews: ReviewItem[]): {
 }
 
 type ProductFormErrors = {
+  category?: string;
   listingImage?: string;
   title?: string;
   subtitle?: string;
@@ -324,6 +330,17 @@ function validateUrlHttp(u: string): boolean {
   } catch {
     return false;
   }
+}
+
+function resolveEditorCategory(
+  selectedCategoryRaw: unknown,
+  kindRaw: unknown,
+): ProductCategoryKey | null {
+  const explicit = normalizeProductCategoryKey(selectedCategoryRaw);
+  if (explicit && explicit !== "all" && explicit !== "uncategorized") return explicit;
+  const inferred = inferCategoryFromKind(String(kindRaw || ""));
+  if (inferred && inferred !== "all" && inferred !== "uncategorized") return inferred;
+  return null;
 }
 
 function validateThumbnailTab(
@@ -978,6 +995,12 @@ export default function AddProductClient({
   const showName = handle.charAt(0).toUpperCase() + handle.slice(1);
 
   const [activeTab, setActiveTab] = useState<TabKey>("thumbnail");
+  const [productCategory, setProductCategory] = useState<ProductCategoryKey | "">(() => {
+    const inferred = inferCategoryFromKind(
+      typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("kind") || "" : ""
+    );
+    return inferred || "digital_product";
+  });
   const [style, setStyle] = useState<StyleKey>("callout");
   const [title, setTitle] = useState("Get started with this amazing course");
   const [subtitle, setSubtitle] = useState("A 2-line course summary to close the sale. What will they learn?");
@@ -1217,6 +1240,7 @@ export default function AddProductClient({
       productId,
       listingStatus,
       activeTab,
+      productCategory,
       style,
       title,
       subtitle,
@@ -1250,6 +1274,7 @@ export default function AddProductClient({
     productId,
     listingStatus,
     activeTab,
+    productCategory,
     style,
     title,
     subtitle,
@@ -1296,6 +1321,17 @@ export default function AddProductClient({
     document.addEventListener("mousedown", onDocClick);
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [checkoutFieldDropdownOpen]);
+
+  useEffect(() => {
+    const resolved = resolveEditorCategory(productCategory, searchParams.get("kind") || "");
+    if (resolved && productFormErrors.category) {
+      setProductFormErrors((prev) => {
+        const next = { ...prev };
+        delete next.category;
+        return next;
+      });
+    }
+  }, [productCategory, searchParams, productFormErrors.category]);
 
   useEffect(() => {
     setCustomCheckoutFields(
@@ -1360,6 +1396,13 @@ export default function AddProductClient({
       setThumbnailDataUrl(null);
     }
     const cj = p.checkout_json as CheckoutJsonShape;
+    const categoryFromProduct =
+      normalizeProductCategoryKey((p.options_json as Record<string, unknown> | null)?.product_category) ||
+      normalizeProductCategoryKey((p.checkout_json as Record<string, unknown> | null)?.product_category) ||
+      inferCategoryFromKind(String(p.product_type || "")) ||
+      inferCategoryFromKind(searchParams.get("kind") || "") ||
+      "digital_product";
+    setProductCategory(categoryFromProduct);
     if (typeof cj?.checkout_image_url === "string" && cj.checkout_image_url.length > 0) {
       setCheckoutImageDataUrl(cj.checkout_image_url);
     } else {
@@ -1600,7 +1643,7 @@ export default function AddProductClient({
     }
     setReviewErrorsById({});
     setProductFormErrors({});
-  }, []);
+  }, [searchParams]);
 
   /* Load from URL ?id= */
   useEffect(() => {
@@ -1630,6 +1673,7 @@ export default function AddProductClient({
   useEffect(() => {
     if (searchParams.get("id")) return;
     const kind = (searchParams.get("kind") || "").toLowerCase();
+    setProductCategory(inferCategoryFromKind(kind) || "digital_product");
     const isCoaching = kind === "coaching";
     const isCustom = kind === "custom";
     const isMembership = kind === "membership";
@@ -1799,6 +1843,7 @@ export default function AddProductClient({
       const tabForSave = activeTabOverride ?? activeTab;
       const flows = emailFlowIdsOverride ?? emailFlowIds;
       const webinarMode = (searchParams.get("kind") || "").toLowerCase() === "webinar";
+      const resolvedCategory = resolveEditorCategory(productCategory, searchParams.get("kind") || "");
       const hasUploadBackedFile =
         Boolean(digitalFileDataUrl) || videoUploadDone || audioUploadDone;
       const safeDigitalFileName =
@@ -1831,6 +1876,7 @@ export default function AddProductClient({
         discount_price: discountEnabled ? Number(discountPrice) || 0 : 0,
         digital_delivery: digitalDelivery,
         digital_redirect_url: digitalRedirectUrl,
+        product_category: resolvedCategory,
         digital_file_name: safeDigitalFileName,
         digital_file_data_url:
           typeof digitalFileDataUrl === "string" && /^data:(video|audio)\//i.test(digitalFileDataUrl)
@@ -1841,6 +1887,7 @@ export default function AddProductClient({
       },
       options_json: {
         note: optionsNote,
+        product_category: resolvedCategory,
         availability: {
           meeting_location: meetingLocation,
           time_zone: timeZone,
@@ -1935,6 +1982,7 @@ export default function AddProductClient({
     audioUploadDone,
     customCheckoutFields,
     searchParams,
+    productCategory,
   ]);
 
   const saveToApi = useCallback(
@@ -1942,6 +1990,16 @@ export default function AddProductClient({
       saveStatus: "draft" | "published" = "draft",
       second?: TabKey | string[]
     ): Promise<boolean> => {
+      const resolvedCategory = resolveEditorCategory(productCategory, searchParams.get("kind") || "");
+      if (!resolvedCategory) {
+        setProductFormErrors((prev) => ({
+          ...prev,
+          category:
+            "Select one valid product category before saving or publishing.",
+        }));
+        setSaveMsg("Please fix the highlighted fields before saving.");
+        return false;
+      }
       const activeTabOverride = Array.isArray(second) ? undefined : second;
       const emailFlowIdsOverride = Array.isArray(second) ? second : undefined;
       if (!token) return false;
@@ -1975,7 +2033,7 @@ export default function AddProductClient({
         setSaving(false);
       }
     },
-    [token, buildBody, router]
+    [token, buildBody, router, productCategory, searchParams]
   );
 
   const ensureDraftProductId = useCallback(async (): Promise<string | null> => {
@@ -3443,6 +3501,11 @@ export default function AddProductClient({
           role="status"
         >
           {saveMsg}
+        </p>
+      ) : null}
+      {productFormErrors.category ? (
+        <p className="mt-2 text-sm font-medium text-rose-600" role="alert">
+          {productFormErrors.category}
         </p>
       ) : null}
       {listingStatus === "published" ? (
