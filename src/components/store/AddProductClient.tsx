@@ -32,6 +32,32 @@ const CHECKOUT_FIELD_CHOICES = [
   { label: "Checkboxes", value: "Checkboxes", icon: "☑" },
 ] as const;
 
+function probeLocalVideoMetadata(file: File): Promise<{ duration?: number; width?: number; height?: number }> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    const finish = (payload: { duration?: number; width?: number; height?: number }) => {
+      URL.revokeObjectURL(url);
+      resolve(payload);
+    };
+    const timer = window.setTimeout(() => finish({}), 12000);
+    video.onloadedmetadata = () => {
+      window.clearTimeout(timer);
+      finish({
+        duration: Number.isFinite(video.duration) ? video.duration : undefined,
+        width: video.videoWidth || undefined,
+        height: video.videoHeight || undefined,
+      });
+    };
+    video.onerror = () => {
+      window.clearTimeout(timer);
+      finish({});
+    };
+    video.src = url;
+  });
+}
+
 type CheckoutFieldType = "phone" | "text" | "multiple_choice" | "dropdown" | "checkboxes";
 type CheckoutCustomFieldCard = {
   id: string;
@@ -1055,6 +1081,12 @@ export default function AddProductClient({
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
   const [toast, setToast] = useState<string | null>(null);
+  const [videoUploadProgress, setVideoUploadProgress] = useState<number | null>(null);
+  const [videoUploadStatus, setVideoUploadStatus] = useState("");
+  const [videoUploadInFlight, setVideoUploadInFlight] = useState(false);
+  const [videoUploadDone, setVideoUploadDone] = useState(false);
+  const latestSavedProductIdRef = useRef<string | null>(null);
+  const draftCreationPromiseRef = useRef<Promise<string | null> | null>(null);
   const [webinarBackfillRunning, setWebinarBackfillRunning] = useState(false);
   const [webinarBackfillMsg, setWebinarBackfillMsg] = useState("");
   const [loadError, setLoadError] = useState("");
@@ -1329,8 +1361,19 @@ export default function AddProductClient({
     }
     if (typeof cj.digital_redirect_url === "string") setDigitalRedirectUrl(cj.digital_redirect_url);
     if (typeof cj.digital_file_name === "string") setDigitalFileName(cj.digital_file_name);
+    if (typeof cj.digital_file_name === "string" && /\.(mp4|webm|mov|m3u8)$/i.test(cj.digital_file_name)) {
+      setVideoUploadDone(true);
+      setVideoUploadStatus("Upload complete");
+    } else {
+      setVideoUploadDone(false);
+      setVideoUploadStatus("");
+    }
     if (typeof cj.digital_file_data_url === "string") {
-      setDigitalFileDataUrl(cj.digital_file_data_url);
+      if (!/^data:video\//i.test(cj.digital_file_data_url)) {
+        setDigitalFileDataUrl(cj.digital_file_data_url);
+      } else {
+        setDigitalFileDataUrl(null);
+      }
     }
     if (Array.isArray(cj.custom_fields) && cj.custom_fields.every((x) => typeof x === "string")) {
       setCustomCheckoutFields(cj.custom_fields);
@@ -1685,6 +1728,11 @@ export default function AddProductClient({
     setDigitalRedirectUrl("");
     setDigitalFileName(null);
     setDigitalFileDataUrl(null);
+    setVideoUploadDone(false);
+    setVideoUploadInFlight(false);
+    setVideoUploadProgress(null);
+    setVideoUploadStatus("");
+    latestSavedProductIdRef.current = null;
     setCustomCheckoutFields([]);
     setCustomCheckoutFieldCards([]);
     setThumbnailDataUrl(null);
@@ -1735,7 +1783,10 @@ export default function AddProductClient({
         digital_delivery: digitalDelivery,
         digital_redirect_url: digitalRedirectUrl,
         digital_file_name: digitalFileName,
-        digital_file_data_url: digitalFileDataUrl,
+        digital_file_data_url:
+          typeof digitalFileDataUrl === "string" && /^data:video\//i.test(digitalFileDataUrl)
+            ? null
+            : digitalFileDataUrl,
         custom_fields: customCheckoutFields,
         checkout_image_url: checkoutImageDataUrl,
       },
@@ -1858,6 +1909,7 @@ export default function AddProductClient({
         if (!res.ok) throw new Error(data.message || "Save failed.");
         const p = data.product as ProductApi;
         if (p?.id) {
+          latestSavedProductIdRef.current = p.id;
           setProductId(p.id);
           setListingStatus(p.status === "published" ? "published" : "draft");
           const url = new URL(window.location.href);
@@ -1873,6 +1925,99 @@ export default function AddProductClient({
       }
     },
     [token, buildBody, router]
+  );
+
+  const ensureDraftProductId = useCallback(async (): Promise<string | null> => {
+    if (productId) return productId;
+    if (latestSavedProductIdRef.current) return latestSavedProductIdRef.current;
+    if (draftCreationPromiseRef.current) return draftCreationPromiseRef.current;
+    const task = (async () => {
+      setVideoUploadStatus("Creating draft...");
+      const ok = await saveToApi("draft");
+      if (!ok) return null;
+      const resolvedId =
+        latestSavedProductIdRef.current ||
+        productId ||
+        new URL(window.location.href).searchParams.get("id");
+      if (!resolvedId) return null;
+      setProductId(resolvedId);
+      return resolvedId;
+    })();
+    draftCreationPromiseRef.current = task;
+    try {
+      return await task;
+    } finally {
+      draftCreationPromiseRef.current = null;
+    }
+  }, [productId, saveToApi]);
+
+  const uploadVideoToStorage = useCallback(
+    async (file: File) => {
+      if (!token) throw new Error("Please log in again.");
+      setVideoUploadInFlight(true);
+      setVideoUploadDone(false);
+      setVideoUploadProgress(0);
+      const pid = await ensureDraftProductId();
+      if (!pid) throw new Error("Could not create draft. Please try again.");
+
+      const probe = await probeLocalVideoMetadata(file);
+      const form = new FormData();
+      form.append("video", file);
+      if (probe.duration != null && Number.isFinite(probe.duration)) {
+        form.append("duration", String(probe.duration));
+      }
+      if (probe.width != null && probe.width > 0) {
+        form.append("video_width", String(probe.width));
+      }
+      if (probe.height != null && probe.height > 0) {
+        form.append("video_height", String(probe.height));
+      }
+      form.append("resolution", "auto");
+      setVideoUploadStatus("Uploading video...");
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `${API_PRODUCTS_BASE}/${encodeURIComponent(pid!)}/video-upload`);
+        xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+        xhr.upload.onprogress = (evt) => {
+          if (!evt.lengthComputable) return;
+          setVideoUploadProgress(Math.max(0, Math.min(100, Math.round((evt.loaded / evt.total) * 100))));
+        };
+        xhr.onload = () => {
+          setVideoUploadProgress(100);
+          if (xhr.status >= 200 && xhr.status < 300) resolve();
+          else {
+            try {
+              const parsed = JSON.parse(xhr.responseText) as { message?: string };
+              reject(new Error(parsed.message || "Video upload failed."));
+            } catch {
+              reject(new Error("Video upload failed."));
+            }
+          }
+        };
+        xhr.onerror = () => reject(new Error("Network error while uploading video."));
+        xhr.send(form);
+      });
+      setVideoUploadStatus("Upload complete");
+      setVideoUploadDone(true);
+      latestSavedProductIdRef.current = pid;
+      setProductId(pid);
+    },
+    [token, ensureDraftProductId]
+  );
+
+  const safeUploadVideoToStorage = useCallback(
+    async (file: File) => {
+      try {
+        await uploadVideoToStorage(file);
+      } catch (err) {
+        setVideoUploadDone(false);
+        setVideoUploadStatus(err instanceof Error ? err.message : "Video upload failed.");
+        throw err;
+      } finally {
+        setVideoUploadInFlight(false);
+      }
+    },
+    [uploadVideoToStorage]
   );
 
   const generateWebinarLinksAndNotify = useCallback(async () => {
@@ -2725,6 +2870,12 @@ export default function AddProductClient({
   };
 
   const handlePublish = async () => {
+    if (publishBlockedByVideoFlow) {
+      if (!productId) setSaveMsg("Create draft first before publishing this video product.");
+      else if (videoUploadInFlight) setSaveMsg("Wait for video upload to complete before publishing.");
+      else setSaveMsg("Upload video successfully before publishing.");
+      return;
+    }
     const e = isAffiliateFlow
       ? validateAffiliatePage(thumbnailDataUrl, title, affiliateUrl)
       : validatePublishTab(
@@ -2883,6 +3034,13 @@ export default function AddProductClient({
     !isCommunityFlow &&
     !isUrlMediaFlow &&
     !isAffiliateFlow;
+  const selectedFileIsVideo = /\.(mp4|webm|mov|m3u8)$/i.test(String(digitalFileName || ""));
+  const requiresVideoDraftAndUpload =
+    isDigitalProductFlow && digitalDelivery === "upload" && selectedFileIsVideo;
+  const publishBlockedByVideoFlow =
+    requiresVideoDraftAndUpload &&
+    (!productId || videoUploadInFlight || !videoUploadDone);
+  const publishDisabled = saving || publishBlockedByVideoFlow;
   const dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
   const weekNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const monthTitle = blockMonth.toLocaleString("en-US", { month: "long", year: "numeric" });
@@ -3052,19 +3210,38 @@ export default function AddProductClient({
         ref={digitalFileRef}
         type="file"
         className="hidden"
-        accept=".pdf,application/pdf"
+        accept=".pdf,application/pdf,video/*"
         onChange={(e) => {
           const file = e.target.files?.[0];
           if (!file) return;
           const mime = String(file.type || "").toLowerCase();
           const name = String(file.name || "").toLowerCase();
-          const allowedByMime = mime === "application/pdf";
-          const allowedByExt = /\.pdf$/i.test(name);
+          const allowedByMime = mime === "application/pdf" || mime.startsWith("video/");
+          const allowedByExt = /\.(pdf|mp4|webm|mov|m3u8)$/i.test(name);
           if (!allowedByMime && !allowedByExt) {
-            setToast("Unsupported file type. Allowed: PDF.");
+            setToast("Unsupported file type. Allowed: PDF and video files.");
             return;
           }
           setDigitalFileName(file.name);
+          if (mime.startsWith("video/") || /\.(mp4|webm|mov|m3u8)$/i.test(name)) {
+            setDigitalFileDataUrl(null);
+            setVideoUploadDone(false);
+            setVideoUploadStatus("Creating draft...");
+            setToast("Uploading video...");
+            void safeUploadVideoToStorage(file)
+              .then(() => {
+                setToast("Video uploaded successfully.");
+                setVideoUploadProgress(null);
+              })
+              .catch((err) => {
+                setToast(err instanceof Error ? err.message : "Video upload failed.");
+                setVideoUploadProgress(null);
+              });
+            return;
+          }
+          setVideoUploadDone(false);
+          setVideoUploadStatus("");
+          setVideoUploadProgress(null);
           const reader = new FileReader();
           reader.onload = () => {
             if (typeof reader.result === "string") {
@@ -4354,6 +4531,19 @@ export default function AddProductClient({
                   </button>
                   {digitalFileName ? (
                     <p className="mt-3 truncate text-sm text-slate-600">{digitalFileName}</p>
+                  ) : null}
+                  {videoUploadProgress != null ? (
+                    <p className="mt-2 text-xs font-medium text-violet-700">
+                      Video upload progress: {videoUploadProgress}%
+                    </p>
+                  ) : null}
+                  {videoUploadStatus ? (
+                    <p className="mt-1 text-xs font-medium text-slate-600">{videoUploadStatus}</p>
+                  ) : null}
+                  {requiresVideoDraftAndUpload ? (
+                    <p className="mt-1 text-xs text-slate-500">
+                      Publish unlocks after draft creation and successful video upload.
+                    </p>
                   ) : null}
                   {productFormErrors.digitalFile ? (
                     <p className="mt-2 text-xs font-medium text-rose-600">{productFormErrors.digitalFile}</p>
@@ -5805,7 +5995,7 @@ export default function AddProductClient({
               </button>
               <button
                 type="button"
-                disabled={saving}
+                disabled={publishDisabled}
                 onClick={() => void handlePublish()}
                 className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
                 style={{ backgroundColor: PURPLE }}
@@ -5842,7 +6032,7 @@ export default function AddProductClient({
           {activeTab === "checkout" ? (
             <button
               type="button"
-                disabled={saving}
+                disabled={isWebinarFlow ? saving : publishDisabled}
               onClick={isWebinarFlow ? goToWebinarTab : () => void handlePublish()}
               className={
                 isWebinarFlow
@@ -5857,7 +6047,7 @@ export default function AddProductClient({
           {activeTab === "course" ? (
             <button
               type="button"
-              disabled={saving}
+              disabled={publishDisabled}
               onClick={() => void handlePublish()}
               className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
               style={{ backgroundColor: PURPLE }}
@@ -5868,7 +6058,7 @@ export default function AddProductClient({
           {activeTab === "webinar" ? (
             <button
               type="button"
-              disabled={saving}
+              disabled={publishDisabled}
               onClick={() => void handlePublish()}
               className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
               style={{ backgroundColor: PURPLE }}
@@ -5879,7 +6069,7 @@ export default function AddProductClient({
           {activeTab === "options" ? (
             <button
               type="button"
-              disabled={saving}
+              disabled={publishDisabled}
               onClick={() => void handlePublish()}
               className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
               style={{ backgroundColor: PURPLE }}
@@ -5890,7 +6080,7 @@ export default function AddProductClient({
           {activeTab === "availability" ? (
             <button
               type="button"
-              disabled={saving}
+              disabled={publishDisabled}
               onClick={() => void handlePublish()}
               className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
               style={{ backgroundColor: PURPLE }}
@@ -5902,7 +6092,7 @@ export default function AddProductClient({
             isUrlMediaFlow || isAffiliateFlow ? (
               <button
                 type="button"
-                disabled={saving}
+                disabled={publishDisabled}
                 onClick={() => void handlePublish()}
                 className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
                 style={{ backgroundColor: PURPLE }}

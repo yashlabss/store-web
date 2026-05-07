@@ -24,6 +24,13 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  webpack: (config) => {
+    // Avoid transient ChunkLoadError during slow first-time recompiles in dev.
+    if (config?.output) {
+      config.output.chunkLoadTimeout = 300000;
+    }
+    return config;
+  },
 };
 
 export default nextConfig;
