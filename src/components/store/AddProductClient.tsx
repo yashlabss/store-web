@@ -32,6 +32,56 @@ const CHECKOUT_FIELD_CHOICES = [
   { label: "Checkboxes", value: "Checkboxes", icon: "☑" },
 ] as const;
 
+function probeLocalVideoMetadata(file: File): Promise<{ duration?: number; width?: number; height?: number }> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    const finish = (payload: { duration?: number; width?: number; height?: number }) => {
+      URL.revokeObjectURL(url);
+      resolve(payload);
+    };
+    const timer = window.setTimeout(() => finish({}), 12000);
+    video.onloadedmetadata = () => {
+      window.clearTimeout(timer);
+      finish({
+        duration: Number.isFinite(video.duration) ? video.duration : undefined,
+        width: video.videoWidth || undefined,
+        height: video.videoHeight || undefined,
+      });
+    };
+    video.onerror = () => {
+      window.clearTimeout(timer);
+      finish({});
+    };
+    video.src = url;
+  });
+}
+
+function probeLocalAudioMetadata(file: File): Promise<{ duration?: number }> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const audio = document.createElement("audio");
+    audio.preload = "metadata";
+    const finish = (payload: { duration?: number }) => {
+      URL.revokeObjectURL(url);
+      resolve(payload);
+    };
+    const timer = window.setTimeout(() => finish({}), 12000);
+    audio.onloadedmetadata = () => {
+      window.clearTimeout(timer);
+      finish({
+        duration: Number.isFinite(audio.duration) ? audio.duration : undefined,
+      });
+    };
+    audio.onerror = () => {
+      window.clearTimeout(timer);
+      finish({});
+    };
+    audio.src = url;
+  });
+}
+
 type CheckoutFieldType = "phone" | "text" | "multiple_choice" | "dropdown" | "checkboxes";
 type CheckoutCustomFieldCard = {
   id: string;
@@ -1055,6 +1105,16 @@ export default function AddProductClient({
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
   const [toast, setToast] = useState<string | null>(null);
+  const [videoUploadProgress, setVideoUploadProgress] = useState<number | null>(null);
+  const [videoUploadStatus, setVideoUploadStatus] = useState("");
+  const [videoUploadInFlight, setVideoUploadInFlight] = useState(false);
+  const [videoUploadDone, setVideoUploadDone] = useState(false);
+  const [audioUploadProgress, setAudioUploadProgress] = useState<number | null>(null);
+  const [audioUploadStatus, setAudioUploadStatus] = useState("");
+  const [audioUploadInFlight, setAudioUploadInFlight] = useState(false);
+  const [audioUploadDone, setAudioUploadDone] = useState(false);
+  const latestSavedProductIdRef = useRef<string | null>(null);
+  const draftCreationPromiseRef = useRef<Promise<string | null> | null>(null);
   const [webinarBackfillRunning, setWebinarBackfillRunning] = useState(false);
   const [webinarBackfillMsg, setWebinarBackfillMsg] = useState("");
   const [loadError, setLoadError] = useState("");
@@ -1329,8 +1389,28 @@ export default function AddProductClient({
     }
     if (typeof cj.digital_redirect_url === "string") setDigitalRedirectUrl(cj.digital_redirect_url);
     if (typeof cj.digital_file_name === "string") setDigitalFileName(cj.digital_file_name);
+    if (typeof cj.digital_file_name === "string" && /\.(mp4|webm|mov|m3u8)$/i.test(cj.digital_file_name)) {
+      setVideoUploadDone(true);
+      setVideoUploadStatus("Upload complete");
+      setAudioUploadDone(false);
+      setAudioUploadStatus("");
+    } else if (typeof cj.digital_file_name === "string" && /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(cj.digital_file_name)) {
+      setAudioUploadDone(true);
+      setAudioUploadStatus("Upload complete");
+      setVideoUploadDone(false);
+      setVideoUploadStatus("");
+    } else {
+      setVideoUploadDone(false);
+      setVideoUploadStatus("");
+      setAudioUploadDone(false);
+      setAudioUploadStatus("");
+    }
     if (typeof cj.digital_file_data_url === "string") {
-      setDigitalFileDataUrl(cj.digital_file_data_url);
+      if (!/^data:(video|audio)\//i.test(cj.digital_file_data_url)) {
+        setDigitalFileDataUrl(cj.digital_file_data_url);
+      } else {
+        setDigitalFileDataUrl(null);
+      }
     }
     if (Array.isArray(cj.custom_fields) && cj.custom_fields.every((x) => typeof x === "string")) {
       setCustomCheckoutFields(cj.custom_fields);
@@ -1685,6 +1765,15 @@ export default function AddProductClient({
     setDigitalRedirectUrl("");
     setDigitalFileName(null);
     setDigitalFileDataUrl(null);
+    setVideoUploadDone(false);
+    setVideoUploadInFlight(false);
+    setVideoUploadProgress(null);
+    setVideoUploadStatus("");
+    setAudioUploadDone(false);
+    setAudioUploadInFlight(false);
+    setAudioUploadProgress(null);
+    setAudioUploadStatus("");
+    latestSavedProductIdRef.current = null;
     setCustomCheckoutFields([]);
     setCustomCheckoutFieldCards([]);
     setThumbnailDataUrl(null);
@@ -1710,6 +1799,14 @@ export default function AddProductClient({
       const tabForSave = activeTabOverride ?? activeTab;
       const flows = emailFlowIdsOverride ?? emailFlowIds;
       const webinarMode = (searchParams.get("kind") || "").toLowerCase() === "webinar";
+      const hasUploadBackedFile =
+        Boolean(digitalFileDataUrl) || videoUploadDone || audioUploadDone;
+      const safeDigitalFileName =
+        digitalDelivery === "upload"
+          ? hasUploadBackedFile
+            ? digitalFileName
+            : null
+          : digitalFileName;
       return {
       id: productId || undefined,
       product_type: webinarMode ? "webinar" : undefined,
@@ -1734,8 +1831,11 @@ export default function AddProductClient({
         discount_price: discountEnabled ? Number(discountPrice) || 0 : 0,
         digital_delivery: digitalDelivery,
         digital_redirect_url: digitalRedirectUrl,
-        digital_file_name: digitalFileName,
-        digital_file_data_url: digitalFileDataUrl,
+        digital_file_name: safeDigitalFileName,
+        digital_file_data_url:
+          typeof digitalFileDataUrl === "string" && /^data:(video|audio)\//i.test(digitalFileDataUrl)
+            ? null
+            : digitalFileDataUrl,
         custom_fields: customCheckoutFields,
         checkout_image_url: checkoutImageDataUrl,
       },
@@ -1831,6 +1931,8 @@ export default function AddProductClient({
     digitalRedirectUrl,
     digitalFileName,
     digitalFileDataUrl,
+    videoUploadDone,
+    audioUploadDone,
     customCheckoutFields,
     searchParams,
   ]);
@@ -1858,6 +1960,7 @@ export default function AddProductClient({
         if (!res.ok) throw new Error(data.message || "Save failed.");
         const p = data.product as ProductApi;
         if (p?.id) {
+          latestSavedProductIdRef.current = p.id;
           setProductId(p.id);
           setListingStatus(p.status === "published" ? "published" : "draft");
           const url = new URL(window.location.href);
@@ -1873,6 +1976,161 @@ export default function AddProductClient({
       }
     },
     [token, buildBody, router]
+  );
+
+  const ensureDraftProductId = useCallback(async (): Promise<string | null> => {
+    if (productId) return productId;
+    if (latestSavedProductIdRef.current) return latestSavedProductIdRef.current;
+    if (draftCreationPromiseRef.current) return draftCreationPromiseRef.current;
+    const task = (async () => {
+      setVideoUploadStatus("Creating draft...");
+      const ok = await saveToApi("draft");
+      if (!ok) return null;
+      const resolvedId =
+        latestSavedProductIdRef.current ||
+        productId ||
+        new URL(window.location.href).searchParams.get("id");
+      if (!resolvedId) return null;
+      setProductId(resolvedId);
+      return resolvedId;
+    })();
+    draftCreationPromiseRef.current = task;
+    try {
+      return await task;
+    } finally {
+      draftCreationPromiseRef.current = null;
+    }
+  }, [productId, saveToApi]);
+
+  const uploadVideoToStorage = useCallback(
+    async (file: File) => {
+      if (!token) throw new Error("Please log in again.");
+      setVideoUploadInFlight(true);
+      setVideoUploadDone(false);
+      setVideoUploadProgress(0);
+      const pid = await ensureDraftProductId();
+      if (!pid) throw new Error("Could not create draft. Please try again.");
+
+      const probe = await probeLocalVideoMetadata(file);
+      const form = new FormData();
+      form.append("video", file);
+      if (probe.duration != null && Number.isFinite(probe.duration)) {
+        form.append("duration", String(probe.duration));
+      }
+      if (probe.width != null && probe.width > 0) {
+        form.append("video_width", String(probe.width));
+      }
+      if (probe.height != null && probe.height > 0) {
+        form.append("video_height", String(probe.height));
+      }
+      form.append("resolution", "auto");
+      setVideoUploadStatus("Uploading video...");
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `${API_PRODUCTS_BASE}/${encodeURIComponent(pid!)}/video-upload`);
+        xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+        xhr.upload.onprogress = (evt) => {
+          if (!evt.lengthComputable) return;
+          setVideoUploadProgress(Math.max(0, Math.min(100, Math.round((evt.loaded / evt.total) * 100))));
+        };
+        xhr.onload = () => {
+          setVideoUploadProgress(100);
+          if (xhr.status >= 200 && xhr.status < 300) resolve();
+          else {
+            try {
+              const parsed = JSON.parse(xhr.responseText) as { message?: string };
+              reject(new Error(parsed.message || "Video upload failed."));
+            } catch {
+              reject(new Error("Video upload failed."));
+            }
+          }
+        };
+        xhr.onerror = () => reject(new Error("Network error while uploading video."));
+        xhr.send(form);
+      });
+      setVideoUploadStatus("Upload complete");
+      setVideoUploadDone(true);
+      latestSavedProductIdRef.current = pid;
+      setProductId(pid);
+    },
+    [token, ensureDraftProductId]
+  );
+
+  const safeUploadVideoToStorage = useCallback(
+    async (file: File) => {
+      try {
+        await uploadVideoToStorage(file);
+      } catch (err) {
+        setVideoUploadDone(false);
+        setVideoUploadStatus(err instanceof Error ? err.message : "Video upload failed.");
+        throw err;
+      } finally {
+        setVideoUploadInFlight(false);
+      }
+    },
+    [uploadVideoToStorage]
+  );
+
+  const uploadAudioToStorage = useCallback(
+    async (file: File) => {
+      if (!token) throw new Error("Please log in again.");
+      setAudioUploadInFlight(true);
+      setAudioUploadDone(false);
+      setAudioUploadProgress(0);
+      const pid = await ensureDraftProductId();
+      if (!pid) throw new Error("Could not create draft. Please try again.");
+
+      const probe = await probeLocalAudioMetadata(file);
+      const form = new FormData();
+      form.append("audio", file);
+      if (probe.duration != null && Number.isFinite(probe.duration)) {
+        form.append("duration", String(probe.duration));
+      }
+      setAudioUploadStatus("Uploading audio...");
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `${API_PRODUCTS_BASE}/${encodeURIComponent(pid!)}/audio-upload`);
+        xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+        xhr.upload.onprogress = (evt) => {
+          if (!evt.lengthComputable) return;
+          setAudioUploadProgress(Math.max(0, Math.min(100, Math.round((evt.loaded / evt.total) * 100))));
+        };
+        xhr.onload = () => {
+          setAudioUploadProgress(100);
+          if (xhr.status >= 200 && xhr.status < 300) resolve();
+          else {
+            try {
+              const parsed = JSON.parse(xhr.responseText) as { message?: string };
+              reject(new Error(parsed.message || "Audio upload failed."));
+            } catch {
+              reject(new Error("Audio upload failed."));
+            }
+          }
+        };
+        xhr.onerror = () => reject(new Error("Network error while uploading audio."));
+        xhr.send(form);
+      });
+      setAudioUploadStatus("Upload complete");
+      setAudioUploadDone(true);
+      latestSavedProductIdRef.current = pid;
+      setProductId(pid);
+    },
+    [token, ensureDraftProductId]
+  );
+
+  const safeUploadAudioToStorage = useCallback(
+    async (file: File) => {
+      try {
+        await uploadAudioToStorage(file);
+      } catch (err) {
+        setAudioUploadDone(false);
+        setAudioUploadStatus(err instanceof Error ? err.message : "Audio upload failed.");
+        throw err;
+      } finally {
+        setAudioUploadInFlight(false);
+      }
+    },
+    [uploadAudioToStorage]
   );
 
   const generateWebinarLinksAndNotify = useCallback(async () => {
@@ -2725,6 +2983,19 @@ export default function AddProductClient({
   };
 
   const handlePublish = async () => {
+    if (publishBlockedByMediaFlow) {
+      if (!productId) setSaveMsg("Create a draft first before publishing this media product.");
+      else if (videoUploadInFlight || audioUploadInFlight) {
+        setSaveMsg("Wait for the file upload to finish before publishing.");
+      } else if (publishBlockedByVideoFlow) {
+        setSaveMsg("Finish video upload before publishing.");
+      } else if (publishBlockedByAudioFlow) {
+        setSaveMsg("Finish audio upload before publishing.");
+      } else {
+        setSaveMsg("Complete upload before publishing.");
+      }
+      return;
+    }
     const e = isAffiliateFlow
       ? validateAffiliatePage(thumbnailDataUrl, title, affiliateUrl)
       : validatePublishTab(
@@ -2883,6 +3154,20 @@ export default function AddProductClient({
     !isCommunityFlow &&
     !isUrlMediaFlow &&
     !isAffiliateFlow;
+  const selectedFileIsVideo = /\.(mp4|webm|mov|m3u8)$/i.test(String(digitalFileName || ""));
+  const selectedFileIsAudio = /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(String(digitalFileName || ""));
+  const requiresVideoDraftAndUpload =
+    isDigitalProductFlow && digitalDelivery === "upload" && selectedFileIsVideo;
+  const requiresAudioDraftAndUpload =
+    isDigitalProductFlow && digitalDelivery === "upload" && selectedFileIsAudio;
+  const publishBlockedByVideoFlow =
+    requiresVideoDraftAndUpload &&
+    (!productId || videoUploadInFlight || !videoUploadDone);
+  const publishBlockedByAudioFlow =
+    requiresAudioDraftAndUpload &&
+    (!productId || audioUploadInFlight || !audioUploadDone);
+  const publishBlockedByMediaFlow = publishBlockedByVideoFlow || publishBlockedByAudioFlow;
+  const publishDisabled = saving || publishBlockedByMediaFlow;
   const dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
   const weekNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const monthTitle = blockMonth.toLocaleString("en-US", { month: "long", year: "numeric" });
@@ -3052,11 +3337,64 @@ export default function AddProductClient({
         ref={digitalFileRef}
         type="file"
         className="hidden"
-        accept="*/*"
+        accept=".pdf,application/pdf,video/*,audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac"
         onChange={(e) => {
           const file = e.target.files?.[0];
           if (!file) return;
+          const mime = String(file.type || "").toLowerCase();
+          const name = String(file.name || "").toLowerCase();
+          const allowedByMime =
+            mime === "application/pdf" || mime.startsWith("video/") || mime.startsWith("audio/");
+          const allowedByExt = /\.(pdf|mp4|webm|mov|m3u8|mp3|wav|m4a|aac|ogg|flac)$/i.test(name);
+          if (!allowedByMime && !allowedByExt) {
+            setToast("Unsupported file type. Allowed: PDF, video, and audio files.");
+            return;
+          }
           setDigitalFileName(file.name);
+          if (mime.startsWith("video/") || /\.(mp4|webm|mov|m3u8)$/i.test(name)) {
+            setDigitalFileDataUrl(null);
+            setAudioUploadDone(false);
+            setAudioUploadStatus("");
+            setAudioUploadProgress(null);
+            setVideoUploadDone(false);
+            setVideoUploadStatus("Creating draft...");
+            setToast("Uploading video...");
+            void safeUploadVideoToStorage(file)
+              .then(() => {
+                setToast("Video uploaded successfully.");
+                setVideoUploadProgress(null);
+              })
+              .catch((err) => {
+                setToast(err instanceof Error ? err.message : "Video upload failed.");
+                setVideoUploadProgress(null);
+              });
+            return;
+          }
+          if (mime.startsWith("audio/") || /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(name)) {
+            setDigitalFileDataUrl(null);
+            setVideoUploadDone(false);
+            setVideoUploadStatus("");
+            setVideoUploadProgress(null);
+            setAudioUploadDone(false);
+            setAudioUploadStatus("Creating draft...");
+            setToast("Uploading audio...");
+            void safeUploadAudioToStorage(file)
+              .then(() => {
+                setToast("Audio uploaded successfully.");
+                setAudioUploadProgress(null);
+              })
+              .catch((err) => {
+                setToast(err instanceof Error ? err.message : "Audio upload failed.");
+                setAudioUploadProgress(null);
+              });
+            return;
+          }
+          setVideoUploadDone(false);
+          setVideoUploadStatus("");
+          setVideoUploadProgress(null);
+          setAudioUploadDone(false);
+          setAudioUploadStatus("");
+          setAudioUploadProgress(null);
           const reader = new FileReader();
           reader.onload = () => {
             if (typeof reader.result === "string") {
@@ -4346,6 +4684,32 @@ export default function AddProductClient({
                   </button>
                   {digitalFileName ? (
                     <p className="mt-3 truncate text-sm text-slate-600">{digitalFileName}</p>
+                  ) : null}
+                  {videoUploadProgress != null ? (
+                    <p className="mt-2 text-xs font-medium text-violet-700">
+                      Video upload progress: {videoUploadProgress}%
+                    </p>
+                  ) : null}
+                  {audioUploadProgress != null ? (
+                    <p className="mt-2 text-xs font-medium text-violet-700">
+                      Audio upload progress: {audioUploadProgress}%
+                    </p>
+                  ) : null}
+                  {videoUploadStatus ? (
+                    <p className="mt-1 text-xs font-medium text-slate-600">{videoUploadStatus}</p>
+                  ) : null}
+                  {audioUploadStatus ? (
+                    <p className="mt-1 text-xs font-medium text-slate-600">{audioUploadStatus}</p>
+                  ) : null}
+                  {requiresVideoDraftAndUpload ? (
+                    <p className="mt-1 text-xs text-slate-500">
+                      Publish unlocks after draft creation and successful video upload.
+                    </p>
+                  ) : null}
+                  {requiresAudioDraftAndUpload ? (
+                    <p className="mt-1 text-xs text-slate-500">
+                      Publish unlocks after draft creation and successful audio upload to storage.
+                    </p>
                   ) : null}
                   {productFormErrors.digitalFile ? (
                     <p className="mt-2 text-xs font-medium text-rose-600">{productFormErrors.digitalFile}</p>
@@ -5788,7 +6152,7 @@ export default function AddProductClient({
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                disabled={saving || Boolean(toast)}
+                disabled={saving}
                 onClick={() => void handleSaveDraft()}
                 className="inline-flex items-center justify-center gap-2 border-2 bg-white px-6 py-3 text-sm font-bold transition disabled:opacity-50"
                 style={{ borderRadius: "8px", borderColor: PURPLE, color: PURPLE }}
@@ -5797,7 +6161,7 @@ export default function AddProductClient({
               </button>
               <button
                 type="button"
-                disabled={saving || Boolean(toast)}
+                disabled={publishDisabled}
                 onClick={() => void handlePublish()}
                 className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
                 style={{ backgroundColor: PURPLE }}
@@ -5820,7 +6184,7 @@ export default function AddProductClient({
         <div className="flex flex-wrap items-center justify-end gap-3">
           <button
             type="button"
-            disabled={saving || Boolean(toast)}
+            disabled={saving}
             onClick={() => void handleSaveDraft()}
             className="inline-flex items-center justify-center gap-2 border-2 bg-white px-6 py-3 text-sm font-bold transition disabled:opacity-50"
             style={{ borderRadius: "8px", borderColor: PURPLE, color: PURPLE }}
@@ -5834,7 +6198,7 @@ export default function AddProductClient({
           {activeTab === "checkout" ? (
             <button
               type="button"
-              disabled={saving || Boolean(toast)}
+                disabled={isWebinarFlow ? saving : publishDisabled}
               onClick={isWebinarFlow ? goToWebinarTab : () => void handlePublish()}
               className={
                 isWebinarFlow
@@ -5849,7 +6213,7 @@ export default function AddProductClient({
           {activeTab === "course" ? (
             <button
               type="button"
-              disabled={saving || Boolean(toast)}
+              disabled={publishDisabled}
               onClick={() => void handlePublish()}
               className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
               style={{ backgroundColor: PURPLE }}
@@ -5860,7 +6224,7 @@ export default function AddProductClient({
           {activeTab === "webinar" ? (
             <button
               type="button"
-              disabled={saving || Boolean(toast)}
+              disabled={publishDisabled}
               onClick={() => void handlePublish()}
               className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
               style={{ backgroundColor: PURPLE }}
@@ -5871,7 +6235,7 @@ export default function AddProductClient({
           {activeTab === "options" ? (
             <button
               type="button"
-              disabled={saving || Boolean(toast)}
+              disabled={publishDisabled}
               onClick={() => void handlePublish()}
               className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
               style={{ backgroundColor: PURPLE }}
@@ -5882,7 +6246,7 @@ export default function AddProductClient({
           {activeTab === "availability" ? (
             <button
               type="button"
-              disabled={saving || Boolean(toast)}
+              disabled={publishDisabled}
               onClick={() => void handlePublish()}
               className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
               style={{ backgroundColor: PURPLE }}
@@ -5894,7 +6258,7 @@ export default function AddProductClient({
             isUrlMediaFlow || isAffiliateFlow ? (
               <button
                 type="button"
-                disabled={saving || Boolean(toast)}
+                disabled={publishDisabled}
                 onClick={() => void handlePublish()}
                 className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
                 style={{ backgroundColor: PURPLE }}
@@ -5904,7 +6268,7 @@ export default function AddProductClient({
             ) : (
               <button
                 type="button"
-                disabled={saving || Boolean(toast)}
+                disabled={saving}
                 onClick={goToCheckoutTab}
                 className="bg-blue-600 px-12 py-3 text-sm font-bold text-white transition hover:bg-blue-400 disabled:opacity-50"
                 style={{ borderRadius: "8px" }}

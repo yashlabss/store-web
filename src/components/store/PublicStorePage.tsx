@@ -4,6 +4,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { API_PUBLIC_BASE } from "../../lib/api";
+import {
+  normalizeLeadPhoneFreeform,
+  sanitizeEmailInput,
+  validateEmail,
+  validateLeadDisplayName,
+  validateLeadPhoneFreeform,
+} from "../../lib/signupValidation";
 
 type CheckoutJson = {
   discount_enabled?: boolean;
@@ -52,6 +59,24 @@ type LeadFormState = {
   email: string;
   answers: Record<string, string>;
 };
+
+type LeadValidationErrors = {
+  general?: string;
+  name?: string;
+  email?: string;
+  answers?: Record<string, string>;
+};
+
+type LeadDeliveryInfo = {
+  file_download_url?: string | null;
+  bonus_url?: string | null;
+};
+
+const CUSTOM_FIELD_MAX = 2000;
+
+function isPhoneLikeCustomField(label: string) {
+  return /whatsapp|phone|mobile/i.test(label);
+}
 
 type WebinarChoiceState = {
   slotKey: string;
@@ -133,8 +158,9 @@ export default function PublicStorePage({ username }: { username: string }) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [toast, setToast] = useState("");
   const [leadForms, setLeadForms] = useState<Record<string, LeadFormState>>({});
-  const [leadErrors, setLeadErrors] = useState<Record<string, string>>({});
+  const [leadFieldErrors, setLeadFieldErrors] = useState<Record<string, LeadValidationErrors>>({});
   const [leadSuccess, setLeadSuccess] = useState<Record<string, string>>({});
+  const [leadDelivery, setLeadDelivery] = useState<Record<string, LeadDeliveryInfo>>({});
   const [webinarChoices, setWebinarChoices] = useState<Record<string, WebinarChoiceState>>({});
   const [webinarForms, setWebinarForms] = useState<Record<string, WebinarCheckoutState>>({});
 
@@ -380,8 +406,23 @@ export default function PublicStorePage({ username }: { username: string }) {
         [productId]: { ...current, [key]: value },
       };
     });
-    setLeadErrors((prev) => ({ ...prev, [productId]: "" }));
+    setLeadFieldErrors((prev) => {
+      const cur = prev[productId] || {};
+      return {
+        ...prev,
+        [productId]: {
+          ...cur,
+          general: undefined,
+          [key]: undefined,
+        },
+      };
+    });
     setLeadSuccess((prev) => ({ ...prev, [productId]: "" }));
+    setLeadDelivery((prev) => {
+      const next = { ...prev };
+      delete next[productId];
+      return next;
+    });
   };
 
   const setLeadAnswer = (productId: string, p: PublicProduct, field: string, value: string) => {
@@ -395,35 +436,66 @@ export default function PublicStorePage({ username }: { username: string }) {
         },
       };
     });
-    setLeadErrors((prev) => ({ ...prev, [productId]: "" }));
+    setLeadFieldErrors((prev) => {
+      const cur = prev[productId] || {};
+      const nextAnswers = { ...cur.answers };
+      delete nextAnswers[field];
+      return {
+        ...prev,
+        [productId]: {
+          ...cur,
+          general: undefined,
+          answers: Object.keys(nextAnswers).length ? nextAnswers : undefined,
+        },
+      };
+    });
     setLeadSuccess((prev) => ({ ...prev, [productId]: "" }));
+    setLeadDelivery((prev) => {
+      const next = { ...prev };
+      delete next[productId];
+      return next;
+    });
   };
 
   const submitLead = async (p: PublicProduct) => {
     const form = getLeadForm(p.id, p);
     const customFields = getCustomFields(p);
     const name = form.name.trim();
-    const email = form.email.trim();
-    const phoneFieldKey = customFields.find((field) => /whatsapp|phone|mobile/i.test(field));
-    const phoneValue = phoneFieldKey ? String(form.answers[phoneFieldKey] || "").trim() : "";
-    if (name.length < 2) {
-      setLeadErrors((prev) => ({ ...prev, [p.id]: "Please enter your name." }));
-      return;
-    }
-    if (!/^\S+@\S+\.\S+$/.test(email)) {
-      setLeadErrors((prev) => ({ ...prev, [p.id]: "Please enter a valid email address." }));
-      return;
-    }
+    const email = sanitizeEmailInput(form.email);
+    const phoneFieldKey = customFields.find((field) => isPhoneLikeCustomField(field));
+    const phoneE164 =
+      phoneFieldKey != null
+        ? normalizeLeadPhoneFreeform(String(form.answers[phoneFieldKey] || ""))
+        : null;
+
+    const nextErrors: LeadValidationErrors = {};
+    const nameErr = validateLeadDisplayName(form.name);
+    if (nameErr) nextErrors.name = nameErr;
+    const emailErr = validateEmail(form.email);
+    if (emailErr) nextErrors.email = emailErr;
+
+    const answerErrs: Record<string, string> = {};
     for (const field of customFields) {
-      const value = String(form.answers[field] || "").trim();
-      if (!value) {
-        setLeadErrors((prev) => ({ ...prev, [p.id]: `Please fill "${field}".` }));
-        return;
+      const raw = String(form.answers[field] ?? "");
+      const value = raw.trim();
+      if (isPhoneLikeCustomField(field)) {
+        const pErr = validateLeadPhoneFreeform(raw);
+        if (pErr) answerErrs[field] = pErr;
+      } else if (!value) {
+        answerErrs[field] = `Please fill "${field}".`;
+      } else if (value.length > CUSTOM_FIELD_MAX) {
+        answerErrs[field] = `Keep "${field}" under ${CUSTOM_FIELD_MAX} characters.`;
       }
+    }
+    if (Object.keys(answerErrs).length) nextErrors.answers = answerErrs;
+
+    if (nextErrors.name || nextErrors.email || nextErrors.answers) {
+      setLeadFieldErrors((prev) => ({ ...prev, [p.id]: nextErrors }));
+      return;
     }
 
     setBusyId(p.id);
-    setLeadErrors((prev) => ({ ...prev, [p.id]: "" }));
+    setLeadFieldErrors((prev) => ({ ...prev, [p.id]: {} }));
     setLeadSuccess((prev) => ({ ...prev, [p.id]: "" }));
     try {
       const res = await fetch(`${API_PUBLIC_BASE}/lead-submit`, {
@@ -433,7 +505,7 @@ export default function PublicStorePage({ username }: { username: string }) {
           product_id: p.id,
           buyer_name: name,
           buyer_email: email,
-          ...(phoneValue ? { buyer_whatsapp: phoneValue } : {}),
+          ...(phoneE164 ? { buyer_whatsapp: phoneE164 } : {}),
           answers: Object.fromEntries(
             customFields.map((field) => [field, String(form.answers[field] || "").trim()])
           ),
@@ -441,10 +513,56 @@ export default function PublicStorePage({ username }: { username: string }) {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.message || "Could not submit application.");
+      const rawDel = json.delivery as Record<string, unknown> | undefined;
+      const fileUrl =
+        typeof rawDel?.file_download_url === "string" && rawDel.file_download_url.trim()
+          ? rawDel.file_download_url.trim()
+          : null;
+      const bonus =
+        typeof rawDel?.bonus_url === "string" && rawDel.bonus_url.trim() ? rawDel.bonus_url.trim() : null;
+      if (fileUrl || bonus) {
+        setLeadDelivery((prev) => ({
+          ...prev,
+          [p.id]: { file_download_url: fileUrl, bonus_url: bonus },
+        }));
+      }
+      const mailInfo = json.confirmation_email as
+        | {
+            status?: string;
+            error?: string;
+            provider?: string | null;
+            had_attachment?: boolean;
+          }
+        | undefined;
+      const mailErr =
+        mailInfo?.status === "failed" && typeof mailInfo.error === "string" && mailInfo.error.trim()
+          ? mailInfo.error.trim()
+          : "";
+      const hadPdfAttachment = mailInfo?.had_attachment === true;
+      const fileOnProduct =
+        (json.delivery as { file_available?: boolean } | undefined)?.file_available === true;
+      let successMsg =
+        fileUrl || bonus
+          ? "You're in! Use the links below for your free file and bonus page."
+          : "Submitted successfully.";
+      if (mailErr) {
+        successMsg = `${successMsg} Email could not be sent: ${mailErr}`;
+      } else if (mailInfo?.status === "sent") {
+        if (hadPdfAttachment) {
+          successMsg = `${successMsg} Check your inbox—the PDF should be attached to that message (also check spam).`;
+        } else if (fileOnProduct) {
+          successMsg = `${successMsg} A confirmation email was sent, but the server could not build a PDF attachment. Use the download button if it appears, or ask the creator to re-upload the file in Collect Emails.`;
+        } else {
+          successMsg = `${successMsg} A confirmation email was sent. No PDF is stored on this product yet—use Collect Emails → upload file → Publish, then try again.`;
+        }
+      } else if (!mailErr && (fileUrl || bonus)) {
+        successMsg = `${successMsg} Use the buttons below if the email is slow to arrive.`;
+      }
       setLeadSuccess((prev) => ({
         ...prev,
-        [p.id]: "Submitted successfully. Please check your email.",
+        [p.id]: successMsg,
       }));
+      setLeadFieldErrors((prev) => ({ ...prev, [p.id]: {} }));
       setLeadForms((prev) => ({
         ...prev,
         [p.id]: {
@@ -454,9 +572,11 @@ export default function PublicStorePage({ username }: { username: string }) {
         },
       }));
     } catch (e) {
-      setLeadErrors((prev) => ({
+      setLeadFieldErrors((prev) => ({
         ...prev,
-        [p.id]: e instanceof Error ? e.message : "Could not submit application.",
+        [p.id]: {
+          general: e instanceof Error ? e.message : "Could not submit application.",
+        },
       }));
     } finally {
       setBusyId(null);
@@ -548,6 +668,7 @@ export default function PublicStorePage({ username }: { username: string }) {
                 const isLeadCapture = isLeadCaptureProduct(p);
                 const form = getLeadForm(p.id, p);
                 const customFields = getCustomFields(p);
+                const fe = leadFieldErrors[p.id];
                 return (
                   <article
                     key={p.id}
@@ -594,33 +715,118 @@ export default function PublicStorePage({ username }: { username: string }) {
                         <>
                           <input
                             type="text"
+                            name={`lead-name-${p.id}`}
                             placeholder="Your name"
+                            autoComplete="name"
+                            maxLength={120}
                             value={form.name}
                             onChange={(e) => setLeadFormField(p.id, p, "name", e.target.value)}
-                            className="mb-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-violet-400"
+                            aria-invalid={Boolean(fe?.name)}
+                            aria-describedby={fe?.name ? `lead-name-err-${p.id}` : undefined}
+                            className={`mb-2 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:border-violet-400 ${
+                              fe?.name ? "border-red-500" : "border-slate-200"
+                            }`}
                           />
+                          {fe?.name ? (
+                            <p
+                              id={`lead-name-err-${p.id}`}
+                              className="-mt-1 mb-2 text-xs font-medium text-red-600"
+                              role="alert"
+                            >
+                              {fe.name}
+                            </p>
+                          ) : null}
                           <input
                             type="email"
+                            name={`lead-email-${p.id}`}
                             placeholder="Your email"
+                            autoComplete="email"
+                            maxLength={254}
                             value={form.email}
                             onChange={(e) => setLeadFormField(p.id, p, "email", e.target.value)}
-                            className="mb-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-violet-400"
+                            aria-invalid={Boolean(fe?.email)}
+                            aria-describedby={fe?.email ? `lead-email-err-${p.id}` : undefined}
+                            className={`mb-2 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:border-violet-400 ${
+                              fe?.email ? "border-red-500" : "border-slate-200"
+                            }`}
                           />
-                          {customFields.map((field) => (
-                            <input
-                              key={field}
-                              type="text"
-                              placeholder={field}
-                              value={form.answers[field] || ""}
-                              onChange={(e) => setLeadAnswer(p.id, p, field, e.target.value)}
-                              className="mb-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-violet-400"
-                            />
-                          ))}
-                          {leadErrors[p.id] ? (
-                            <p className="mb-2 text-xs font-medium text-red-600">{leadErrors[p.id]}</p>
+                          {fe?.email ? (
+                            <p
+                              id={`lead-email-err-${p.id}`}
+                              className="-mt-1 mb-2 text-xs font-medium text-red-600"
+                              role="alert"
+                            >
+                              {fe.email}
+                            </p>
+                          ) : null}
+                          {customFields.map((field) => {
+                            const ansErr = fe?.answers?.[field];
+                            const phoneLike = isPhoneLikeCustomField(field);
+                            return (
+                              <div key={field} className="mb-2">
+                                <input
+                                  type={phoneLike ? "tel" : "text"}
+                                  name={`lead-field-${p.id}-${field}`}
+                                  placeholder={field}
+                                  maxLength={CUSTOM_FIELD_MAX}
+                                  autoComplete={phoneLike ? "tel" : "on"}
+                                  value={form.answers[field] || ""}
+                                  onChange={(e) => setLeadAnswer(p.id, p, field, e.target.value)}
+                                  aria-invalid={Boolean(ansErr)}
+                                  aria-describedby={ansErr ? `lead-field-err-${p.id}-${field}` : undefined}
+                                  className={`w-full rounded-xl border px-3 py-2 text-sm outline-none focus:border-violet-400 ${
+                                    ansErr ? "border-red-500" : "border-slate-200"
+                                  }`}
+                                />
+                                {ansErr ? (
+                                  <p
+                                    id={`lead-field-err-${p.id}-${field}`}
+                                    className="mt-1 text-xs font-medium text-red-600"
+                                    role="alert"
+                                  >
+                                    {ansErr}
+                                  </p>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                          {fe?.general ? (
+                            <p className="mb-2 text-xs font-medium text-red-600" role="alert">
+                              {fe.general}
+                            </p>
                           ) : null}
                           {leadSuccess[p.id] ? (
-                            <p className="mb-2 text-xs font-medium text-emerald-600">{leadSuccess[p.id]}</p>
+                            <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50/90 px-3 py-2.5">
+                              <p className="text-xs font-medium text-emerald-900">{leadSuccess[p.id]}</p>
+                              {(() => {
+                                const d = leadDelivery[p.id];
+                                if (!d?.file_download_url && !d?.bonus_url) return null;
+                                return (
+                                  <div className="mt-2 flex flex-col gap-2">
+                                    {d.file_download_url ? (
+                                      <a
+                                        href={d.file_download_url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center justify-center rounded-lg bg-[#0a7a69] px-3 py-2 text-center text-xs font-bold text-white hover:opacity-95"
+                                      >
+                                        Download your file
+                                      </a>
+                                    ) : null}
+                                    {d.bonus_url ? (
+                                      <a
+                                        href={d.bonus_url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center justify-center rounded-lg border border-[#0a7a69] bg-white px-3 py-2 text-center text-xs font-bold text-[#0a7a69] hover:bg-emerald-50"
+                                      >
+                                        Open bonus link
+                                      </a>
+                                    ) : null}
+                                  </div>
+                                );
+                              })()}
+                            </div>
                           ) : null}
                           <button
                             type="button"

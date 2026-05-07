@@ -21,6 +21,20 @@ export function validateFullName(raw: string): string | undefined {
   return undefined;
 }
 
+/** Name on public store lead forms — allows hyphens and apostrophes. */
+const LEAD_DISPLAY_NAME = /^[\p{L}\s'.-]+$/u;
+
+export function validateLeadDisplayName(raw: string): string | undefined {
+  const t = raw.trim();
+  if (!t) return "Please enter your name.";
+  if (t.length < 2) return "Name must be at least 2 characters.";
+  if (t.length > 120) return "Name must be at most 120 characters.";
+  if (!LEAD_DISPLAY_NAME.test(t)) {
+    return "Use only letters, spaces, hyphens, and apostrophes.";
+  }
+  return undefined;
+}
+
 /**
  * Remove all whitespace (start, middle, end). Uses Unicode-aware `\s` (with `u`)
  * plus explicit separators some browsers still let through in `type="email"` fields.
@@ -62,6 +76,32 @@ export function validatePhone(
     return "Enter a valid phone number for the selected country.";
   }
   return undefined;
+}
+
+function parseLeadPhoneFreeform(raw: string) {
+  const t = raw.trim();
+  if (!t) return undefined;
+  let parsed = parsePhoneNumberFromString(t);
+  if (parsed?.isValid()) return parsed;
+  for (const region of ["IN", "US", "GB", "AU"] as const) {
+    parsed = parsePhoneNumberFromString(t, region);
+    if (parsed?.isValid()) return parsed;
+  }
+  return undefined;
+}
+
+/** Phone typed in a single field (with or without +country). Used on public store lead forms. */
+export function validateLeadPhoneFreeform(raw: string): string | undefined {
+  if (!raw.trim()) return "Phone number is required.";
+  if (!parseLeadPhoneFreeform(raw)) {
+    return "Enter a valid phone number (include country code, e.g. +91…).";
+  }
+  return undefined;
+}
+
+export function normalizeLeadPhoneFreeform(raw: string): string | null {
+  const parsed = parseLeadPhoneFreeform(raw);
+  return parsed?.format("E.164") ?? null;
 }
 
 export function validatePassword(p: string): string | undefined {
