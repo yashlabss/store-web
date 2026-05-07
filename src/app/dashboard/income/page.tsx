@@ -40,8 +40,14 @@ type WebinarRow = {
   title: string;
   status: string;
   created_at: string;
+  host_joined: boolean;
+  host_ended: boolean;
   host_started_at: string | null;
   host_ended_at: string | null;
+  webinar_started_at: string | null;
+  webinar_ended_at: string | null;
+  host_join_time: string | null;
+  ended_at: string | null;
   first_user_joined_at: string | null;
   last_user_left_at: string | null;
   planned_duration_mins: number;
@@ -222,6 +228,15 @@ export default function IncomePage() {
     if (user) void loadSessions();
   }, [user, loadSessions]);
 
+  useEffect(() => {
+    if (!user) return;
+    const id = window.setInterval(() => {
+      void loadSessions();
+      void loadOrders();
+    }, 15_000);
+    return () => window.clearInterval(id);
+  }, [user, loadSessions, loadOrders]);
+
   const signOut = () => {
     localStorage.removeItem("auth_token");
     router.push("/auth/login");
@@ -335,14 +350,13 @@ export default function IncomePage() {
                 <tr className="border-b border-slate-100 text-xs font-semibold uppercase tracking-wide text-slate-400">
                   <th className="px-4 py-3">Webinar</th>
                   <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Created</th>
                   <th className="px-4 py-3">Host start</th>
                   <th className="px-4 py-3">Host end</th>
                   <th className="px-4 py-3">User first join</th>
                   <th className="px-4 py-3">User last left</th>
                   <th className="px-4 py-3">Duration</th>
                   <th className="px-4 py-3">Verdict</th>
-                  <th className="px-4 py-3">Users</th>
-                  <th className="px-4 py-3">Attendance</th>
                   <th className="px-4 py-3">Feedback</th>
                 </tr>
               </thead>
@@ -353,7 +367,13 @@ export default function IncomePage() {
                       <p className="truncate font-medium text-slate-900">{w.title || "Webinar"}</p>
                       <p className="truncate text-xs text-slate-500">{w.webinar_id}</p>
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-slate-700">{w.status}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                      <div>{w.status}</div>
+                      <div className="text-xs text-slate-500">
+                        host_joined: {w.host_joined ? "yes" : "no"} · host_ended: {w.host_ended ? "yes" : "no"}
+                      </div>
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-slate-600">{fmtDateTime(w.created_at)}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-slate-600">{fmtDateTime(w.host_started_at)}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-slate-600">{fmtDateTime(w.host_ended_at)}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-slate-600">{fmtDateTime(w.first_user_joined_at)}</td>
@@ -362,12 +382,6 @@ export default function IncomePage() {
                       {w.actual_duration_mins == null ? "—" : `${w.actual_duration_mins}m`} / {w.planned_duration_mins}m
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-700">{w.duration_verdict}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-slate-700">
-                      J:{w.summary.users_joined_total} · L:{w.summary.users_left_total} · A:{w.summary.active_sessions_now}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-slate-700">
-                      C:{w.summary.completed_attendance_total} · P:{w.summary.partial_attendance_total} · M:{w.summary.missed_attendance_total}
-                    </td>
                     <td className="min-w-[220px] px-4 py-3 text-slate-700">
                       <p>
                         Avg: {w.feedback?.average_rating != null ? `${w.feedback.average_rating}/5` : "—"} · Count:{" "}

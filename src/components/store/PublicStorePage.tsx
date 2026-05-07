@@ -199,6 +199,12 @@ export default function PublicStorePage({ username }: { username: string }) {
     };
   }, []);
 
+  const isWebinarProduct = (p: PublicProduct) => {
+    if (String(p.product_type || "").toLowerCase() === "webinar") return true;
+    const w = p.options_json?.webinar;
+    return Boolean(w && typeof w === "object" && Array.isArray((w as { slots?: unknown }).slots));
+  };
+
   const getWebinarSlots = (p: PublicProduct) => {
     const raw = p.options_json?.webinar?.slots;
     if (!Array.isArray(raw)) return [] as { dateIso: string; time: string }[];
@@ -237,7 +243,7 @@ export default function PublicStorePage({ username }: { username: string }) {
         ? ""
         : localStorage.getItem("buyer_auth_token") || "";
     const webinarSlots = getWebinarSlots(product);
-    const isWebinar = String(product.product_type || "").toLowerCase() === "webinar";
+    const isWebinar = isWebinarProduct(product);
     const webinarForm = webinarForms[product.id] || {
       email: "",
       phone: "",
@@ -351,6 +357,8 @@ export default function PublicStorePage({ username }: { username: string }) {
   };
 
   const isLeadCaptureProduct = (p: PublicProduct) => {
+    // Webinars always use the webinar checkout UI (email, phone + country, slot, recording) — not the generic lead form.
+    if (isWebinarProduct(p)) return false;
     const opts = p.options_json;
     if (opts?.collect_emails === false) return false;
     if (Boolean(opts?.collect_emails)) return true;
@@ -548,6 +556,9 @@ export default function PublicStorePage({ username }: { username: string }) {
                 const isLeadCapture = isLeadCaptureProduct(p);
                 const form = getLeadForm(p.id, p);
                 const customFields = getCustomFields(p);
+                const webinarSlotsList = getWebinarSlots(p);
+                const isWebinarCard = isWebinarProduct(p);
+                const webinarRegisterDisabled = isWebinarCard && webinarSlotsList.length === 0;
                 return (
                   <article
                     key={p.id}
@@ -636,8 +647,7 @@ export default function PublicStorePage({ username }: { username: string }) {
                         </>
                       ) : (
                         <>
-                          {String(p.product_type || "").toLowerCase() === "webinar" &&
-                          getWebinarSlots(p).length > 0 ? (
+                          {isWebinarCard ? (
                             <div className="mb-3 space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
                               <label className="block text-xs font-semibold text-slate-700">
                                 Email
@@ -708,31 +718,48 @@ export default function PublicStorePage({ username }: { username: string }) {
                               <label className="block text-xs font-semibold text-slate-700">
                                 Choose webinar slot
                               </label>
-                              <select
-                                value={
-                                  webinarChoices[p.id]?.slotKey ||
-                                  `${getWebinarSlots(p)[0].dateIso}|${getWebinarSlots(p)[0].time}`
-                                }
-                                onChange={(e) =>
-                                  setWebinarChoices((prev) => ({
-                                    ...prev,
-                                    [p.id]: {
-                                      slotKey: e.target.value,
-                                      wantsRecording: prev[p.id]?.wantsRecording || false,
-                                    },
-                                  }))
-                                }
-                                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-violet-400"
-                              >
-                                {getWebinarSlots(p).map((slot) => {
-                                  const key = `${slot.dateIso}|${slot.time}`;
-                                  return (
-                                    <option key={key} value={key}>
-                                      {formatWebinarSlot(slot)}
-                                    </option>
-                                  );
-                                })}
-                              </select>
+                              {webinarSlotsList.length > 0 ? (
+                                <select
+                                  value={
+                                    webinarChoices[p.id]?.slotKey ||
+                                    `${webinarSlotsList[0].dateIso}|${webinarSlotsList[0].time}`
+                                  }
+                                  onChange={(e) =>
+                                    setWebinarChoices((prev) => ({
+                                      ...prev,
+                                      [p.id]: {
+                                        slotKey: e.target.value,
+                                        wantsRecording: prev[p.id]?.wantsRecording || false,
+                                      },
+                                    }))
+                                  }
+                                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-violet-400"
+                                >
+                                  {webinarSlotsList.map((slot) => {
+                                    const key = `${slot.dateIso}|${slot.time}`;
+                                    return (
+                                      <option key={key} value={key}>
+                                        {formatWebinarSlot(slot)}
+                                      </option>
+                                    );
+                                  })}
+                                </select>
+                              ) : (
+                                <>
+                                  <select
+                                    disabled
+                                    aria-disabled
+                                    className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-600"
+                                    value=""
+                                  >
+                                    <option value="">No sessions scheduled yet</option>
+                                  </select>
+                                  <p className="text-xs text-amber-800">
+                                    Add at least one date and time slot in the dashboard (Webinar tab)
+                                    so people can register.
+                                  </p>
+                                </>
+                              )}
                               <label className="inline-flex items-center gap-2 text-xs text-slate-700">
                                 <input
                                   type="checkbox"
@@ -742,8 +769,10 @@ export default function PublicStorePage({ username }: { username: string }) {
                                       ...prev,
                                       [p.id]: {
                                         slotKey:
-                                          prev[p.id]?.slotKey ||
-                                          `${getWebinarSlots(p)[0].dateIso}|${getWebinarSlots(p)[0].time}`,
+                                          webinarSlotsList.length > 0
+                                            ? prev[p.id]?.slotKey ||
+                                              `${webinarSlotsList[0].dateIso}|${webinarSlotsList[0].time}`
+                                            : "",
                                         wantsRecording: e.target.checked,
                                       },
                                     }))
@@ -756,21 +785,16 @@ export default function PublicStorePage({ username }: { username: string }) {
                           ) : null}
                           <button
                             type="button"
-                            disabled={busyId === p.id}
+                            disabled={busyId === p.id || webinarRegisterDisabled}
                             onClick={() => void purchase(p)}
                             className="w-full rounded-full py-3 text-[18px] font-bold text-white transition hover:opacity-95 disabled:opacity-60"
                             style={{ backgroundColor: "#0a7a69" }}
                           >
                             {busyId === p.id
-                              ? String(p.product_type || "").toLowerCase() === "webinar"
+                              ? isWebinarCard
                                 ? "Registering..."
                                 : "Processing payment..."
-                              : getProductCta(
-                                  p,
-                                  String(p.product_type || "").toLowerCase() === "webinar"
-                                    ? "Register"
-                                    : "Pay"
-                                )}
+                              : getProductCta(p, isWebinarCard ? "Register" : "Pay")}
                           </button>
                         </>
                       )}

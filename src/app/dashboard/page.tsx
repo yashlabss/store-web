@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import StanDashboard from "../../components/dashboard/StanDashboard";
 import { API_AUTH_BASE } from "../../lib/api";
 import { networkErrorMessage } from "../../lib/networkError";
@@ -14,13 +14,34 @@ type UserRow = {
   full_name?: string;
   country_code?: string;
   phone?: string;
+  zoom_connected?: boolean;
+  zoom_plan_type?: number | null;
 };
 
-export default function DashboardPage() {
+function LoadingShell() {
+  return (
+    <div
+      className="flex min-h-screen items-center justify-center bg-white"
+      style={{ fontFamily: "Inter, system-ui, sans-serif" }}
+    >
+      <div className="flex flex-col items-center gap-3">
+        <div
+          className="h-9 w-9 animate-spin rounded-full border-2 border-[#6b46ff] border-t-transparent"
+          aria-hidden
+        />
+        <p className="text-sm font-medium text-slate-600">Loading your store…</p>
+      </div>
+    </div>
+  );
+}
+
+function DashboardPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [user, setUser] = useState<UserRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [zoomConnectedToast, setZoomConnectedToast] = useState(false);
 
   const loadUser = useCallback(async () => {
     const token =
@@ -63,26 +84,22 @@ export default function DashboardPage() {
     void loadUser();
   }, [loadUser]);
 
+  useEffect(() => {
+    if (searchParams.get("zoom") !== "connected") return;
+    setZoomConnectedToast(true);
+    void loadUser();
+    router.replace("/dashboard", { scroll: false });
+    const t = window.setTimeout(() => setZoomConnectedToast(false), 5200);
+    return () => window.clearTimeout(t);
+  }, [searchParams, loadUser, router]);
+
   const signOut = () => {
     localStorage.removeItem("auth_token");
     router.push("/auth/login");
   };
 
   if (loading) {
-    return (
-      <div
-        className="flex min-h-screen items-center justify-center bg-white"
-        style={{ fontFamily: "Inter, system-ui, sans-serif" }}
-      >
-        <div className="flex flex-col items-center gap-3">
-          <div
-            className="h-9 w-9 animate-spin rounded-full border-2 border-[#6b46ff] border-t-transparent"
-            aria-hidden
-          />
-          <p className="text-sm font-medium text-slate-600">Loading your store…</p>
-        </div>
-      </div>
-    );
+    return <LoadingShell />;
   }
 
   if (error) {
@@ -125,11 +142,29 @@ export default function DashboardPage() {
   const showName = handle.charAt(0).toUpperCase() + handle.slice(1);
 
   return (
-    <StanDashboard
-      displayName={displayName}
-      handle={handle}
-      showName={showName}
-      onSignOut={signOut}
-    />
+    <>
+      {zoomConnectedToast ? (
+        <div
+          className="fixed top-4 left-1/2 z-[200] max-w-md -translate-x-1/2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-center text-sm font-semibold text-emerald-900 shadow-lg"
+          role="status"
+        >
+          Zoom account connected successfully
+        </div>
+      ) : null}
+      <StanDashboard
+        displayName={displayName}
+        handle={handle}
+        showName={showName}
+        onSignOut={signOut}
+      />
+    </>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={<LoadingShell />}>
+      <DashboardPageInner />
+    </Suspense>
   );
 }
