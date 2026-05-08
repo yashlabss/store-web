@@ -135,6 +135,10 @@ function getProductCta(p: PublicProduct, fallback: string) {
   return fallback;
 }
 
+
+
+// new
+
 function isCoachingProduct(p: PublicProduct): boolean {
   if (String(p.product_type || "").toLowerCase() === "coaching") return true;
   if (/1:1\s*call/i.test(String(p.button_text || ""))) return true;
