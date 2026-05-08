@@ -35,12 +35,44 @@ export default function VideoPreviewPage() {
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(1);
   const [authToken, setAuthToken] = useState("");
+  const [downloadBusy, setDownloadBusy] = useState(false);
+  const [downloadError, setDownloadError] = useState("");
 
   const selectedSource = useMemo(() => {
     const exact = sources.find((s) => s.quality === selectedQuality);
     return exact || sources[0] || null;
   }, [sources, selectedQuality]);
   const downloadUrl = `${API_PUBLIC_BASE}/media/${encodeURIComponent(token)}?download=1`;
+
+  const handleDownload = useCallback(async () => {
+    if (downloadBusy || !token) return;
+    setDownloadBusy(true);
+    setDownloadError("");
+    let objectUrl = "";
+    try {
+      const res = await fetch(downloadUrl, { cache: "no-store" });
+      if (!res.ok) throw new Error(`Download failed (${res.status}).`);
+      const blob = await res.blob();
+      objectUrl = URL.createObjectURL(blob);
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
+      const fileName = match ? decodeURIComponent(match[1]) : "video";
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = fileName;
+      link.rel = "noopener";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (e) {
+      setDownloadError(e instanceof Error ? e.message : "Could not download.");
+    } finally {
+      if (objectUrl) {
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 2000);
+      }
+      setDownloadBusy(false);
+    }
+  }, [downloadBusy, downloadUrl, token]);
 
   const saveProgress = useCallback(
     async (force = false) => {
@@ -274,13 +306,18 @@ export default function VideoPreviewPage() {
             <span className="text-slate-300">Time Left</span>
             <span>{Number.isFinite(duration) && duration > 0 ? formatClock(timeRemaining) : "—"}</span>
           </div>
-          <a
-            href={downloadUrl}
-            className="ml-auto rounded-md border border-indigo-500 bg-indigo-600 px-3 py-1.5 font-semibold text-white hover:bg-indigo-500"
+          <button
+            type="button"
+            onClick={() => void handleDownload()}
+            disabled={downloadBusy}
+            className="ml-auto rounded-md border border-indigo-500 bg-indigo-600 px-3 py-1.5 font-semibold text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Download
-          </a>
+            {downloadBusy ? "Preparing…" : "Download"}
+          </button>
         </div>
+        {downloadError ? (
+          <p className="mt-2 text-xs font-medium text-rose-300">{downloadError}</p>
+        ) : null}
         <p className="mt-3 text-xs text-slate-400">
           Keyboard shortcuts: Space/K (play/pause), J/L (seek), M (mute), F (fullscreen), C (captions).
         </p>

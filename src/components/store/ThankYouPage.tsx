@@ -543,12 +543,12 @@ export default function ThankYouPage() {
                   {statusLabel(emailDelivery)}
                 </span>
               </div>
-              <div className="flex items-center justify-between rounded-lg bg-white px-3 py-2">
+              {/* <div className="flex items-center justify-between rounded-lg bg-white px-3 py-2">
                 <span>WhatsApp</span>
                 <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadgeClasses(whatsappDelivery)}`}>
                   {statusLabel(whatsappDelivery)}
                 </span>
-              </div>
+              </div> */}
               {webinar ? (
                 <div className="rounded-lg bg-white px-3 py-2">
                   <div className="flex items-center justify-between">

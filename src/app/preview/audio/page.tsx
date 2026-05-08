@@ -62,8 +62,40 @@ export default function AudioPreviewPage() {
   const [volume, setVolume] = useState(1);
   const [authToken, setAuthToken] = useState("");
   const [isPlaying, setIsPlaying] = useState(false);
+  const [downloadBusy, setDownloadBusy] = useState(false);
+  const [downloadError, setDownloadError] = useState("");
 
   const downloadUrl = `${API_PUBLIC_BASE}/media/${encodeURIComponent(token)}?download=1`;
+
+  const handleDownload = useCallback(async () => {
+    if (downloadBusy || !token) return;
+    setDownloadBusy(true);
+    setDownloadError("");
+    let objectUrl = "";
+    try {
+      const res = await fetch(downloadUrl, { cache: "no-store" });
+      if (!res.ok) throw new Error(`Download failed (${res.status}).`);
+      const blob = await res.blob();
+      objectUrl = URL.createObjectURL(blob);
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
+      const fileName = match ? decodeURIComponent(match[1]) : "audio";
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = fileName;
+      link.rel = "noopener";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (e) {
+      setDownloadError(e instanceof Error ? e.message : "Could not download.");
+    } finally {
+      if (objectUrl) {
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 2000);
+      }
+      setDownloadBusy(false);
+    }
+  }, [downloadBusy, downloadUrl, token]);
 
   const effectiveDuration = useMemo(() => {
     if (Number.isFinite(duration) && duration > 0) return duration;
@@ -546,14 +578,18 @@ export default function AudioPreviewPage() {
               </button>
             </div>
 
-            <div className="flex justify-center border-t border-slate-800 pt-4">
-              <a
-                href={downloadUrl}
-                download
-                className="rounded-lg border border-emerald-600/60 bg-emerald-900/30 px-4 py-2 text-sm font-semibold text-emerald-200 hover:bg-emerald-900/50"
+            <div className="flex flex-col items-center gap-2 border-t border-slate-800 pt-4">
+              <button
+                type="button"
+                onClick={() => void handleDownload()}
+                disabled={downloadBusy}
+                className="rounded-lg border border-emerald-600/60 bg-emerald-900/30 px-4 py-2 text-sm font-semibold text-emerald-200 hover:bg-emerald-900/50 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Download (authorized)
-              </a>
+                {downloadBusy ? "Preparing…" : "Download"}
+              </button>
+              {downloadError ? (
+                <p className="text-xs font-medium text-rose-300">{downloadError}</p>
+              ) : null}
             </div>
           </div>
         </div>
