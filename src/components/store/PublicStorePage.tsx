@@ -28,6 +28,7 @@ type AvailabilityJson = {
 type ProductOptionsJson = {
   collect_emails?: boolean;
   custom_fields?: Array<string | { label?: string; id?: string }>;
+  availability?: AvailabilityJson;
   webinar?: {
     slots?: Array<{ dateIso?: string; time?: string }>;
   };

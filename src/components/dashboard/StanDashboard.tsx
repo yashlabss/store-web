@@ -885,13 +885,13 @@ export default function StanDashboard({ displayName, handle, showName, onSignOut
             Landing Pages
             <IconArrowUpRight />
           </Link>
-          <button
+          {/* <button
             type="button"
             className="flex items-center gap-2 px-2 py-2.5 text-sm font-medium text-slate-500 hover:text-[#1f2a44] sm:px-3"
           >
             Edit Design
             <IconSparkle />
-          </button>
+          </button> */}
         </div>
 
         {activeTab === "store" ? (
