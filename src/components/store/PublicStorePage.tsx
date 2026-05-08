@@ -4,6 +4,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { API_PUBLIC_BASE } from "../../lib/api";
+import {
+  normalizeLeadPhoneFreeform,
+  sanitizeEmailInput,
+  validateEmail,
+  validateLeadDisplayName,
+  validateLeadPhoneFreeform,
+} from "../../lib/signupValidation";
 
 type CheckoutJson = {
   discount_enabled?: boolean;
@@ -21,7 +28,9 @@ type AvailabilityJson = {
 type ProductOptionsJson = {
   collect_emails?: boolean;
   custom_fields?: Array<string | { label?: string; id?: string }>;
-  availability?: AvailabilityJson;
+  webinar?: {
+    slots?: Array<{ dateIso?: string; time?: string }>;
+  };
 };
 
 export type PublicProduct = {
@@ -87,32 +96,6 @@ type WebinarCheckoutState = {
   dialCode: string;
 };
 
-type ReferCategoryKey =
-  | "collect_emails_applications"
-  | "digital_product"
-  | "coaching"
-  | "custom_product"
-  | "ecourse"
-  | "recurring_membership"
-  | "webinar"
-  | "community"
-  | "url_media"
-  | "stan_affiliate";
-
-type ReferFormState = {
-  name: string;
-  email: string;
-  phoneNumber: string;
-  category: ReferCategoryKey | "";
-};
-
-type ReferFormErrors = {
-  name?: string;
-  email?: string;
-  phoneNumber?: string;
-  category?: string;
-};
-
 const PHONE_COUNTRY_OPTIONS = [
   { code: "IN", label: "India", dialCode: "+91" },
   { code: "US", label: "United States", dialCode: "+1" },
@@ -121,19 +104,6 @@ const PHONE_COUNTRY_OPTIONS = [
   { code: "SG", label: "Singapore", dialCode: "+65" },
   { code: "AU", label: "Australia", dialCode: "+61" },
 ] as const;
-
-// const REFER_CATEGORY_OPTIONS: Array<{ value: ReferCategoryKey; label: string }> = [
-//   { value: "collect_emails_applications", label: "Email Collections" },
-//   { value: "digital_product", label: "Product Hub" },
-//   { value: "coaching", label: "Coaching" },
-//   { value: "custom_product", label: "Custom Product" },
-//   { value: "ecourse", label: "eCourse" },
-//   { value: "recurring_membership", label: "Recurring Membership" },
-//   { value: "webinar", label: "Webinar" },
-//   { value: "community", label: "Community" },
-//   { value: "url_media", label: "URL / Media" },
-//   { value: "stan_affiliate", label: "Stan Affiliate Link" },
-// ];
 
 function normalizePhoneForApi(rawPhone: string, dialCode: string): string {
   const raw = String(rawPhone || "").trim();
@@ -224,8 +194,11 @@ export default function PublicStorePage({ username }: { username: string }) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [toast, setToast] = useState("");
   const [leadForms, setLeadForms] = useState<Record<string, LeadFormState>>({});
-  const [leadErrors, setLeadErrors] = useState<Record<string, string>>({});
+  const [leadFieldErrors, setLeadFieldErrors] = useState<Record<string, LeadValidationErrors>>({});
   const [leadSuccess, setLeadSuccess] = useState<Record<string, string>>({});
+  const [leadDelivery, setLeadDelivery] = useState<Record<string, LeadDeliveryInfo>>({});
+  const [webinarChoices, setWebinarChoices] = useState<Record<string, WebinarChoiceState>>({});
+  const [webinarForms, setWebinarForms] = useState<Record<string, WebinarCheckoutState>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -288,33 +261,103 @@ export default function PublicStorePage({ username }: { username: string }) {
     };
   }, []);
 
+  const getWebinarSlots = (p: PublicProduct) => {
+    const raw = p.options_json?.webinar?.slots;
+    if (!Array.isArray(raw)) return [] as { dateIso: string; time: string }[];
+    return raw
+      .filter(
+        (slot) =>
+          slot &&
+          typeof slot === "object" &&
+          typeof slot.dateIso === "string" &&
+          typeof slot.time === "string" &&
+          slot.dateIso.trim() &&
+          slot.time.trim()
+      )
+      .map((slot) => ({
+        dateIso: slot.dateIso!.trim(),
+        time: slot.time!.trim(),
+      }));
+  };
+
+  const formatWebinarSlot = (slot: { dateIso: string; time: string }) => {
+    const d = new Date(`${slot.dateIso}T00:00:00`);
+    const datePart = Number.isNaN(d.getTime())
+      ? slot.dateIso
+      : d.toLocaleDateString("en-US", {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        });
+    return `${datePart} • ${slot.time}`;
+  };
+
   const purchase = async (product: PublicProduct) => {
-    const productId = product.id;
     const token =
       typeof window === "undefined"
         ? ""
         : localStorage.getItem("buyer_auth_token") || "";
-    if (!token) {
+    const webinarSlots = getWebinarSlots(product);
+    const isWebinar = String(product.product_type || "").toLowerCase() === "webinar";
+    const webinarForm = webinarForms[product.id] || {
+      email: "",
+      phone: "",
+      countryCode: "IN",
+      dialCode: "+91",
+    };
+    const emailCandidate = isWebinar
+      ? String(webinarForm.email || "").trim()
+      : String(buyer?.email || "").trim();
+    const buyerPhone = isWebinar
+      ? normalizePhoneForApi(webinarForm.phone || "", webinarForm.dialCode || "+91")
+      : String(buyer?.phone || "").trim();
+    if (!isWebinar && !token) {
       const redirectTo = `/${encodeURIComponent(username)}`;
       router.push(`/buyer/login?redirectTo=${encodeURIComponent(redirectTo)}`);
       return;
     }
-    const buyerPhone = String(buyer?.phone || "").trim();
-    const emailCandidate = String(buyer?.email || "").trim();
-    setBusyId(productId);
+    if (isWebinar && !/^\S+@\S+\.\S+$/.test(emailCandidate)) {
+      setToast("Please enter a valid email.");
+      window.setTimeout(() => setToast(""), 3500);
+      return;
+    }
+    if (isWebinar && !buyerPhone) {
+      setToast("Please enter a valid phone number with country.");
+      window.setTimeout(() => setToast(""), 3500);
+      return;
+    }
+    const choice = webinarChoices[product.id];
+    const defaultSlotKey =
+      webinarSlots.length > 0 ? `${webinarSlots[0].dateIso}|${webinarSlots[0].time}` : "";
+    const slotKey = choice?.slotKey || defaultSlotKey;
+    const selectedSlot = webinarSlots.find((slot) => `${slot.dateIso}|${slot.time}` === slotKey);
+    if (isWebinar && !selectedSlot) {
+      setToast("Please select a webinar slot.");
+      window.setTimeout(() => setToast(""), 3500);
+      return;
+    }
+    setBusyId(product.id);
     setToast("");
     try {
       const res = await fetch(`${API_PUBLIC_BASE}/purchase`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
-          product_id: productId,
+          product_id: product.id,
           ...(buyerPhone ? { buyer_whatsapp: buyerPhone } : {}),
           ...(buyer?.full_name ? { buyer_name: buyer.full_name } : {}),
           ...(emailCandidate ? { buyer_email: emailCandidate } : {}),
+          ...(isWebinar && selectedSlot
+            ? {
+                webinar_slot_date: selectedSlot.dateIso,
+                webinar_slot_time: selectedSlot.time,
+                webinar_recording_requested: Boolean(choice?.wantsRecording),
+              }
+            : {}),
         }),
       });
       const json = await res.json().catch(() => ({}));
@@ -440,8 +483,23 @@ export default function PublicStorePage({ username }: { username: string }) {
         [productId]: { ...current, [key]: value },
       };
     });
-    setLeadErrors((prev) => ({ ...prev, [productId]: "" }));
+    setLeadFieldErrors((prev) => {
+      const cur = prev[productId] || {};
+      return {
+        ...prev,
+        [productId]: {
+          ...cur,
+          general: undefined,
+          [key]: undefined,
+        },
+      };
+    });
     setLeadSuccess((prev) => ({ ...prev, [productId]: "" }));
+    setLeadDelivery((prev) => {
+      const next = { ...prev };
+      delete next[productId];
+      return next;
+    });
   };
 
   const setLeadAnswer = (productId: string, p: PublicProduct, field: string, value: string) => {
@@ -455,35 +513,66 @@ export default function PublicStorePage({ username }: { username: string }) {
         },
       };
     });
-    setLeadErrors((prev) => ({ ...prev, [productId]: "" }));
+    setLeadFieldErrors((prev) => {
+      const cur = prev[productId] || {};
+      const nextAnswers = { ...cur.answers };
+      delete nextAnswers[field];
+      return {
+        ...prev,
+        [productId]: {
+          ...cur,
+          general: undefined,
+          answers: Object.keys(nextAnswers).length ? nextAnswers : undefined,
+        },
+      };
+    });
     setLeadSuccess((prev) => ({ ...prev, [productId]: "" }));
+    setLeadDelivery((prev) => {
+      const next = { ...prev };
+      delete next[productId];
+      return next;
+    });
   };
 
   const submitLead = async (p: PublicProduct) => {
     const form = getLeadForm(p.id, p);
     const customFields = getCustomFields(p);
     const name = form.name.trim();
-    const email = form.email.trim();
-    const phoneFieldKey = customFields.find((field) => /whatsapp|phone|mobile/i.test(field));
-    const phoneValue = phoneFieldKey ? String(form.answers[phoneFieldKey] || "").trim() : "";
-    if (name.length < 2) {
-      setLeadErrors((prev) => ({ ...prev, [p.id]: "Please enter your name." }));
-      return;
-    }
-    if (!/^\S+@\S+\.\S+$/.test(email)) {
-      setLeadErrors((prev) => ({ ...prev, [p.id]: "Please enter a valid email address." }));
-      return;
-    }
+    const email = sanitizeEmailInput(form.email);
+    const phoneFieldKey = customFields.find((field) => isPhoneLikeCustomField(field));
+    const phoneE164 =
+      phoneFieldKey != null
+        ? normalizeLeadPhoneFreeform(String(form.answers[phoneFieldKey] || ""))
+        : null;
+
+    const nextErrors: LeadValidationErrors = {};
+    const nameErr = validateLeadDisplayName(form.name);
+    if (nameErr) nextErrors.name = nameErr;
+    const emailErr = validateEmail(form.email);
+    if (emailErr) nextErrors.email = emailErr;
+
+    const answerErrs: Record<string, string> = {};
     for (const field of customFields) {
-      const value = String(form.answers[field] || "").trim();
-      if (!value) {
-        setLeadErrors((prev) => ({ ...prev, [p.id]: `Please fill "${field}".` }));
-        return;
+      const raw = String(form.answers[field] ?? "");
+      const value = raw.trim();
+      if (isPhoneLikeCustomField(field)) {
+        const pErr = validateLeadPhoneFreeform(raw);
+        if (pErr) answerErrs[field] = pErr;
+      } else if (!value) {
+        answerErrs[field] = `Please fill "${field}".`;
+      } else if (value.length > CUSTOM_FIELD_MAX) {
+        answerErrs[field] = `Keep "${field}" under ${CUSTOM_FIELD_MAX} characters.`;
       }
+    }
+    if (Object.keys(answerErrs).length) nextErrors.answers = answerErrs;
+
+    if (nextErrors.name || nextErrors.email || nextErrors.answers) {
+      setLeadFieldErrors((prev) => ({ ...prev, [p.id]: nextErrors }));
+      return;
     }
 
     setBusyId(p.id);
-    setLeadErrors((prev) => ({ ...prev, [p.id]: "" }));
+    setLeadFieldErrors((prev) => ({ ...prev, [p.id]: {} }));
     setLeadSuccess((prev) => ({ ...prev, [p.id]: "" }));
     try {
       const res = await fetch(`${API_PUBLIC_BASE}/lead-submit`, {
@@ -493,7 +582,7 @@ export default function PublicStorePage({ username }: { username: string }) {
           product_id: p.id,
           buyer_name: name,
           buyer_email: email,
-          ...(phoneValue ? { buyer_whatsapp: phoneValue } : {}),
+          ...(phoneE164 ? { buyer_whatsapp: phoneE164 } : {}),
           answers: Object.fromEntries(
             customFields.map((field) => [field, String(form.answers[field] || "").trim()])
           ),
@@ -501,10 +590,56 @@ export default function PublicStorePage({ username }: { username: string }) {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.message || "Could not submit application.");
+      const rawDel = json.delivery as Record<string, unknown> | undefined;
+      const fileUrl =
+        typeof rawDel?.file_download_url === "string" && rawDel.file_download_url.trim()
+          ? rawDel.file_download_url.trim()
+          : null;
+      const bonus =
+        typeof rawDel?.bonus_url === "string" && rawDel.bonus_url.trim() ? rawDel.bonus_url.trim() : null;
+      if (fileUrl || bonus) {
+        setLeadDelivery((prev) => ({
+          ...prev,
+          [p.id]: { file_download_url: fileUrl, bonus_url: bonus },
+        }));
+      }
+      const mailInfo = json.confirmation_email as
+        | {
+            status?: string;
+            error?: string;
+            provider?: string | null;
+            had_attachment?: boolean;
+          }
+        | undefined;
+      const mailErr =
+        mailInfo?.status === "failed" && typeof mailInfo.error === "string" && mailInfo.error.trim()
+          ? mailInfo.error.trim()
+          : "";
+      const hadPdfAttachment = mailInfo?.had_attachment === true;
+      const fileOnProduct =
+        (json.delivery as { file_available?: boolean } | undefined)?.file_available === true;
+      let successMsg =
+        fileUrl || bonus
+          ? "You're in! Use the links below for your free file and bonus page."
+          : "Submitted successfully.";
+      if (mailErr) {
+        successMsg = `${successMsg} Email could not be sent: ${mailErr}`;
+      } else if (mailInfo?.status === "sent") {
+        if (hadPdfAttachment) {
+          successMsg = `${successMsg} Check your inbox—the PDF should be attached to that message (also check spam).`;
+        } else if (fileOnProduct) {
+          successMsg = `${successMsg} A confirmation email was sent, but the server could not build a PDF attachment. Use the download button if it appears, or ask the creator to re-upload the file in Collect Emails.`;
+        } else {
+          successMsg = `${successMsg} A confirmation email was sent. No PDF is stored on this product yet—use Collect Emails → upload file → Publish, then try again.`;
+        }
+      } else if (!mailErr && (fileUrl || bonus)) {
+        successMsg = `${successMsg} Use the buttons below if the email is slow to arrive.`;
+      }
       setLeadSuccess((prev) => ({
         ...prev,
-        [p.id]: "Submitted successfully. Please check your email.",
+        [p.id]: successMsg,
       }));
+      setLeadFieldErrors((prev) => ({ ...prev, [p.id]: {} }));
       setLeadForms((prev) => ({
         ...prev,
         [p.id]: {
@@ -514,9 +649,11 @@ export default function PublicStorePage({ username }: { username: string }) {
         },
       }));
     } catch (e) {
-      setLeadErrors((prev) => ({
+      setLeadFieldErrors((prev) => ({
         ...prev,
-        [p.id]: e instanceof Error ? e.message : "Could not submit application.",
+        [p.id]: {
+          general: e instanceof Error ? e.message : "Could not submit application.",
+        },
       }));
     } finally {
       setBusyId(null);
@@ -608,6 +745,7 @@ export default function PublicStorePage({ username }: { username: string }) {
                 const isLeadCapture = isLeadCaptureProduct(p);
                 const form = getLeadForm(p.id, p);
                 const customFields = getCustomFields(p);
+                const fe = leadFieldErrors[p.id];
                 return (
                   <article
                     key={p.id}
@@ -654,33 +792,118 @@ export default function PublicStorePage({ username }: { username: string }) {
                         <>
                           <input
                             type="text"
+                            name={`lead-name-${p.id}`}
                             placeholder="Your name"
+                            autoComplete="name"
+                            maxLength={120}
                             value={form.name}
                             onChange={(e) => setLeadFormField(p.id, p, "name", e.target.value)}
-                            className="mb-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-violet-400"
+                            aria-invalid={Boolean(fe?.name)}
+                            aria-describedby={fe?.name ? `lead-name-err-${p.id}` : undefined}
+                            className={`mb-2 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:border-violet-400 ${
+                              fe?.name ? "border-red-500" : "border-slate-200"
+                            }`}
                           />
+                          {fe?.name ? (
+                            <p
+                              id={`lead-name-err-${p.id}`}
+                              className="-mt-1 mb-2 text-xs font-medium text-red-600"
+                              role="alert"
+                            >
+                              {fe.name}
+                            </p>
+                          ) : null}
                           <input
                             type="email"
+                            name={`lead-email-${p.id}`}
                             placeholder="Your email"
+                            autoComplete="email"
+                            maxLength={254}
                             value={form.email}
                             onChange={(e) => setLeadFormField(p.id, p, "email", e.target.value)}
-                            className="mb-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-violet-400"
+                            aria-invalid={Boolean(fe?.email)}
+                            aria-describedby={fe?.email ? `lead-email-err-${p.id}` : undefined}
+                            className={`mb-2 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:border-violet-400 ${
+                              fe?.email ? "border-red-500" : "border-slate-200"
+                            }`}
                           />
-                          {customFields.map((field) => (
-                            <input
-                              key={field}
-                              type="text"
-                              placeholder={field}
-                              value={form.answers[field] || ""}
-                              onChange={(e) => setLeadAnswer(p.id, p, field, e.target.value)}
-                              className="mb-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-violet-400"
-                            />
-                          ))}
-                          {leadErrors[p.id] ? (
-                            <p className="mb-2 text-xs font-medium text-red-600">{leadErrors[p.id]}</p>
+                          {fe?.email ? (
+                            <p
+                              id={`lead-email-err-${p.id}`}
+                              className="-mt-1 mb-2 text-xs font-medium text-red-600"
+                              role="alert"
+                            >
+                              {fe.email}
+                            </p>
+                          ) : null}
+                          {customFields.map((field) => {
+                            const ansErr = fe?.answers?.[field];
+                            const phoneLike = isPhoneLikeCustomField(field);
+                            return (
+                              <div key={field} className="mb-2">
+                                <input
+                                  type={phoneLike ? "tel" : "text"}
+                                  name={`lead-field-${p.id}-${field}`}
+                                  placeholder={field}
+                                  maxLength={CUSTOM_FIELD_MAX}
+                                  autoComplete={phoneLike ? "tel" : "on"}
+                                  value={form.answers[field] || ""}
+                                  onChange={(e) => setLeadAnswer(p.id, p, field, e.target.value)}
+                                  aria-invalid={Boolean(ansErr)}
+                                  aria-describedby={ansErr ? `lead-field-err-${p.id}-${field}` : undefined}
+                                  className={`w-full rounded-xl border px-3 py-2 text-sm outline-none focus:border-violet-400 ${
+                                    ansErr ? "border-red-500" : "border-slate-200"
+                                  }`}
+                                />
+                                {ansErr ? (
+                                  <p
+                                    id={`lead-field-err-${p.id}-${field}`}
+                                    className="mt-1 text-xs font-medium text-red-600"
+                                    role="alert"
+                                  >
+                                    {ansErr}
+                                  </p>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                          {fe?.general ? (
+                            <p className="mb-2 text-xs font-medium text-red-600" role="alert">
+                              {fe.general}
+                            </p>
                           ) : null}
                           {leadSuccess[p.id] ? (
-                            <p className="mb-2 text-xs font-medium text-emerald-600">{leadSuccess[p.id]}</p>
+                            <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50/90 px-3 py-2.5">
+                              <p className="text-xs font-medium text-emerald-900">{leadSuccess[p.id]}</p>
+                              {(() => {
+                                const d = leadDelivery[p.id];
+                                if (!d?.file_download_url && !d?.bonus_url) return null;
+                                return (
+                                  <div className="mt-2 flex flex-col gap-2">
+                                    {d.file_download_url ? (
+                                      <a
+                                        href={d.file_download_url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center justify-center rounded-lg bg-[#0a7a69] px-3 py-2 text-center text-xs font-bold text-white hover:opacity-95"
+                                      >
+                                        Download your file
+                                      </a>
+                                    ) : null}
+                                    {d.bonus_url ? (
+                                      <a
+                                        href={d.bonus_url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center justify-center rounded-lg border border-[#0a7a69] bg-white px-3 py-2 text-center text-xs font-bold text-[#0a7a69] hover:bg-emerald-50"
+                                      >
+                                        Open bonus link
+                                      </a>
+                                    ) : null}
+                                  </div>
+                                );
+                              })()}
+                            </div>
                           ) : null}
                           <button
                             type="button"
@@ -695,17 +918,144 @@ export default function PublicStorePage({ username }: { username: string }) {
                           </button>
                         </>
                       ) : (
-                        <button
-                          type="button"
-                          disabled={busyId === p.id}
-                          onClick={() => void purchase(p)}
-                          className="w-full rounded-full py-3 text-[18px] font-bold text-white transition hover:opacity-95 disabled:opacity-60"
-                          style={{ backgroundColor: "#0a7a69" }}
-                        >
-                          {busyId === p.id
-                            ? "Processing payment..."
-                            : getProductCta(p, "Pay")}
-                        </button>
+                        <>
+                          {String(p.product_type || "").toLowerCase() === "webinar" &&
+                          getWebinarSlots(p).length > 0 ? (
+                            <div className="mb-3 space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                              <label className="block text-xs font-semibold text-slate-700">
+                                Email
+                              </label>
+                              <input
+                                type="email"
+                                value={webinarForms[p.id]?.email || ""}
+                                onChange={(e) =>
+                                  setWebinarForms((prev) => ({
+                                    ...prev,
+                                    [p.id]: {
+                                      email: e.target.value,
+                                      phone: prev[p.id]?.phone || "",
+                                      countryCode: prev[p.id]?.countryCode || "IN",
+                                      dialCode: prev[p.id]?.dialCode || "+91",
+                                    },
+                                  }))
+                                }
+                                placeholder="you@example.com"
+                                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-violet-400"
+                              />
+                              <label className="block text-xs font-semibold text-slate-700">
+                                Phone / WhatsApp number
+                              </label>
+                              <div className="flex gap-2">
+                                <select
+                                  value={webinarForms[p.id]?.countryCode || "IN"}
+                                  onChange={(e) => {
+                                    const selected =
+                                      PHONE_COUNTRY_OPTIONS.find((c) => c.code === e.target.value) ||
+                                      PHONE_COUNTRY_OPTIONS[0];
+                                    setWebinarForms((prev) => ({
+                                      ...prev,
+                                      [p.id]: {
+                                        email: prev[p.id]?.email || "",
+                                        phone: prev[p.id]?.phone || "",
+                                        countryCode: selected.code,
+                                        dialCode: selected.dialCode,
+                                      },
+                                    }));
+                                  }}
+                                  className="w-[44%] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-violet-400"
+                                >
+                                  {PHONE_COUNTRY_OPTIONS.map((c) => (
+                                    <option key={c.code} value={c.code}>
+                                      {c.label} ({c.dialCode})
+                                    </option>
+                                  ))}
+                                </select>
+                                <input
+                                  type="tel"
+                                  value={webinarForms[p.id]?.phone || ""}
+                                  onChange={(e) =>
+                                    setWebinarForms((prev) => ({
+                                      ...prev,
+                                      [p.id]: {
+                                        email: prev[p.id]?.email || "",
+                                        phone: e.target.value,
+                                        countryCode: prev[p.id]?.countryCode || "IN",
+                                        dialCode: prev[p.id]?.dialCode || "+91",
+                                      },
+                                    }))
+                                  }
+                                  placeholder="Enter number"
+                                  className="w-[56%] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-violet-400"
+                                />
+                              </div>
+                              <label className="block text-xs font-semibold text-slate-700">
+                                Choose webinar slot
+                              </label>
+                              <select
+                                value={
+                                  webinarChoices[p.id]?.slotKey ||
+                                  `${getWebinarSlots(p)[0].dateIso}|${getWebinarSlots(p)[0].time}`
+                                }
+                                onChange={(e) =>
+                                  setWebinarChoices((prev) => ({
+                                    ...prev,
+                                    [p.id]: {
+                                      slotKey: e.target.value,
+                                      wantsRecording: prev[p.id]?.wantsRecording || false,
+                                    },
+                                  }))
+                                }
+                                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-violet-400"
+                              >
+                                {getWebinarSlots(p).map((slot) => {
+                                  const key = `${slot.dateIso}|${slot.time}`;
+                                  return (
+                                    <option key={key} value={key}>
+                                      {formatWebinarSlot(slot)}
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                              <label className="inline-flex items-center gap-2 text-xs text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(webinarChoices[p.id]?.wantsRecording)}
+                                  onChange={(e) =>
+                                    setWebinarChoices((prev) => ({
+                                      ...prev,
+                                      [p.id]: {
+                                        slotKey:
+                                          prev[p.id]?.slotKey ||
+                                          `${getWebinarSlots(p)[0].dateIso}|${getWebinarSlots(p)[0].time}`,
+                                        wantsRecording: e.target.checked,
+                                      },
+                                    }))
+                                  }
+                                  className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                                />
+                                I want recorded copy later
+                              </label>
+                            </div>
+                          ) : null}
+                          <button
+                            type="button"
+                            disabled={busyId === p.id}
+                            onClick={() => void purchase(p)}
+                            className="w-full rounded-full py-3 text-[18px] font-bold text-white transition hover:opacity-95 disabled:opacity-60"
+                            style={{ backgroundColor: "#0a7a69" }}
+                          >
+                            {busyId === p.id
+                              ? String(p.product_type || "").toLowerCase() === "webinar"
+                                ? "Registering..."
+                                : "Processing payment..."
+                              : getProductCta(
+                                  p,
+                                  String(p.product_type || "").toLowerCase() === "webinar"
+                                    ? "Register"
+                                    : "Pay"
+                                )}
+                          </button>
+                        </>
                       )}
                     </div>
                   </article>

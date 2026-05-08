@@ -32,6 +32,56 @@ const CHECKOUT_FIELD_CHOICES = [
   { label: "Checkboxes", value: "Checkboxes", icon: "☑" },
 ] as const;
 
+function probeLocalVideoMetadata(file: File): Promise<{ duration?: number; width?: number; height?: number }> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    const finish = (payload: { duration?: number; width?: number; height?: number }) => {
+      URL.revokeObjectURL(url);
+      resolve(payload);
+    };
+    const timer = window.setTimeout(() => finish({}), 12000);
+    video.onloadedmetadata = () => {
+      window.clearTimeout(timer);
+      finish({
+        duration: Number.isFinite(video.duration) ? video.duration : undefined,
+        width: video.videoWidth || undefined,
+        height: video.videoHeight || undefined,
+      });
+    };
+    video.onerror = () => {
+      window.clearTimeout(timer);
+      finish({});
+    };
+    video.src = url;
+  });
+}
+
+function probeLocalAudioMetadata(file: File): Promise<{ duration?: number }> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const audio = document.createElement("audio");
+    audio.preload = "metadata";
+    const finish = (payload: { duration?: number }) => {
+      URL.revokeObjectURL(url);
+      resolve(payload);
+    };
+    const timer = window.setTimeout(() => finish({}), 12000);
+    audio.onloadedmetadata = () => {
+      window.clearTimeout(timer);
+      finish({
+        duration: Number.isFinite(audio.duration) ? audio.duration : undefined,
+      });
+    };
+    audio.onerror = () => {
+      window.clearTimeout(timer);
+      finish({});
+    };
+    audio.src = url;
+  });
+}
+
 type CheckoutFieldType = "phone" | "text" | "multiple_choice" | "dropdown" | "checkboxes";
 type CheckoutCustomFieldCard = {
   id: string;
@@ -850,6 +900,7 @@ type CheckoutJsonShape = {
 type ProductApi = {
   id: string;
   status?: string;
+  product_type?: string;
   active_tab: TabKey;
   style: StyleKey;
   title: string;
@@ -1189,7 +1240,10 @@ export default function AddProductClient({
     "Friday",
   ]);
   const [blockDatesOpen, setBlockDatesOpen] = useState(false);
-  const [blockMonth, setBlockMonth] = useState<Date>(new Date(2026, 3, 1));
+  const [blockMonth, setBlockMonth] = useState<Date>(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
   const [selectedBlockDate, setSelectedBlockDate] = useState<string>("2026-04-24");
   const [blockTimeOpen, setBlockTimeOpen] = useState(false);
   const [blockFromDate, setBlockFromDate] = useState("Apr 24, 2026");
@@ -1290,6 +1344,18 @@ export default function AddProductClient({
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
   const [toast, setToast] = useState<string | null>(null);
+  const [videoUploadProgress, setVideoUploadProgress] = useState<number | null>(null);
+  const [videoUploadStatus, setVideoUploadStatus] = useState("");
+  const [videoUploadInFlight, setVideoUploadInFlight] = useState(false);
+  const [videoUploadDone, setVideoUploadDone] = useState(false);
+  const [audioUploadProgress, setAudioUploadProgress] = useState<number | null>(null);
+  const [audioUploadStatus, setAudioUploadStatus] = useState("");
+  const [audioUploadInFlight, setAudioUploadInFlight] = useState(false);
+  const [audioUploadDone, setAudioUploadDone] = useState(false);
+  const latestSavedProductIdRef = useRef<string | null>(null);
+  const draftCreationPromiseRef = useRef<Promise<string | null> | null>(null);
+  const [webinarBackfillRunning, setWebinarBackfillRunning] = useState(false);
+  const [webinarBackfillMsg, setWebinarBackfillMsg] = useState("");
   const [loadError, setLoadError] = useState("");
   const [productFormErrors, setProductFormErrors] = useState<ProductFormErrors>({});
 
@@ -1681,7 +1747,17 @@ export default function AddProductClient({
     const pt = typeof p.product_type === "string" ? p.product_type.trim() : "";
     setPersistedProductType(pt || null);
     setListingStatus(p.status === "published" ? "published" : "draft");
-    const tab = p.active_tab;
+    const optionsObj =
+      p.options_json && typeof p.options_json === "object"
+        ? (p.options_json as Record<string, unknown>)
+        : {};
+    const hasWebinarConfig =
+      Boolean(optionsObj.webinar) && typeof optionsObj.webinar === "object";
+    const tab =
+      (p.product_type === "webinar" || hasWebinarConfig) &&
+      p.active_tab === "checkout"
+        ? "webinar"
+        : p.active_tab;
     setActiveTab(
       tab === "thumbnail" ||
         tab === "checkout" ||
@@ -1732,8 +1808,28 @@ export default function AddProductClient({
     }
     if (typeof cj.digital_redirect_url === "string") setDigitalRedirectUrl(cj.digital_redirect_url);
     if (typeof cj.digital_file_name === "string") setDigitalFileName(cj.digital_file_name);
+    if (typeof cj.digital_file_name === "string" && /\.(mp4|webm|mov|m3u8)$/i.test(cj.digital_file_name)) {
+      setVideoUploadDone(true);
+      setVideoUploadStatus("Upload complete");
+      setAudioUploadDone(false);
+      setAudioUploadStatus("");
+    } else if (typeof cj.digital_file_name === "string" && /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(cj.digital_file_name)) {
+      setAudioUploadDone(true);
+      setAudioUploadStatus("Upload complete");
+      setVideoUploadDone(false);
+      setVideoUploadStatus("");
+    } else {
+      setVideoUploadDone(false);
+      setVideoUploadStatus("");
+      setAudioUploadDone(false);
+      setAudioUploadStatus("");
+    }
     if (typeof cj.digital_file_data_url === "string") {
-      setDigitalFileDataUrl(cj.digital_file_data_url);
+      if (!/^data:(video|audio)\//i.test(cj.digital_file_data_url)) {
+        setDigitalFileDataUrl(cj.digital_file_data_url);
+      } else {
+        setDigitalFileDataUrl(null);
+      }
     }
     if (Array.isArray(cj.custom_fields) && cj.custom_fields.every((x) => typeof x === "string")) {
       setCustomCheckoutFields(cj.custom_fields);
@@ -1753,6 +1849,26 @@ export default function AddProductClient({
     }
     const oj = p.options_json as {
       note?: string;
+      availability?: {
+        meeting_location?: string;
+        time_zone?: string;
+        duration_mins?: string;
+        prevent_booking_hours?: string;
+        max_attendees?: string;
+        before_meeting_enabled?: boolean;
+        after_meeting_enabled?: boolean;
+        before_meeting_mins?: string;
+        after_meeting_mins?: string;
+        book_within_days?: string;
+        days?: string[];
+      };
+      webinar?: {
+        slots?: { dateIso?: string; time?: string }[];
+        time_zone?: string;
+        duration_mins?: string;
+        meeting_location?: string;
+        max_attendees?: string;
+      };
       attached_file_name?: string;
       confirmation_email?: { subject?: string; body?: string };
       reminder_email?: {
@@ -1771,6 +1887,76 @@ export default function AddProductClient({
       }[];
     };
     if (typeof oj?.note === "string") setOptionsNote(oj.note);
+    if (oj?.availability && typeof oj.availability === "object") {
+      const availability = oj.availability;
+      if (typeof availability.meeting_location === "string") {
+        setMeetingLocation(availability.meeting_location);
+      }
+      if (typeof availability.time_zone === "string") {
+        setTimeZone(availability.time_zone);
+      }
+      if (typeof availability.duration_mins === "string") {
+        setDurationMins(availability.duration_mins);
+      }
+      if (typeof availability.prevent_booking_hours === "string") {
+        setPreventBookingHours(availability.prevent_booking_hours);
+      }
+      if (typeof availability.max_attendees === "string") {
+        setMaxAttendees(availability.max_attendees);
+      }
+      if (typeof availability.before_meeting_enabled === "boolean") {
+        setBeforeMeetingEnabled(availability.before_meeting_enabled);
+      }
+      if (typeof availability.after_meeting_enabled === "boolean") {
+        setAfterMeetingEnabled(availability.after_meeting_enabled);
+      }
+      if (typeof availability.before_meeting_mins === "string") {
+        setBeforeMeetingMins(availability.before_meeting_mins);
+      }
+      if (typeof availability.after_meeting_mins === "string") {
+        setAfterMeetingMins(availability.after_meeting_mins);
+      }
+      if (typeof availability.book_within_days === "string") {
+        setBookWithinDays(availability.book_within_days);
+      }
+      if (
+        Array.isArray(availability.days) &&
+        availability.days.every((d) => typeof d === "string")
+      ) {
+        setActiveAvailabilityDays(availability.days);
+      }
+    }
+    if (oj?.webinar && typeof oj.webinar === "object") {
+      const webinar = oj.webinar;
+      if (Array.isArray(webinar.slots)) {
+        const parsedSlots = webinar.slots
+          .filter(
+            (slot) =>
+              slot &&
+              typeof slot === "object" &&
+              typeof slot.dateIso === "string" &&
+              typeof slot.time === "string"
+          )
+          .map((slot) => ({ dateIso: slot.dateIso as string, time: slot.time as string }));
+        setWebinarSlots(parsedSlots);
+      } else {
+        setWebinarSlots([]);
+      }
+      if (typeof webinar.meeting_location === "string") {
+        setMeetingLocation(webinar.meeting_location);
+      }
+      if (typeof webinar.time_zone === "string") {
+        setTimeZone(webinar.time_zone);
+      }
+      if (typeof webinar.duration_mins === "string") {
+        setDurationMins(webinar.duration_mins);
+      }
+      if (typeof webinar.max_attendees === "string") {
+        setMaxAttendees(webinar.max_attendees);
+      }
+    } else if (p.product_type === "webinar") {
+      setWebinarSlots([]);
+    }
     if (typeof oj?.attached_file_name === "string") setFileLabel(oj.attached_file_name);
     const ce = oj?.confirmation_email;
     if (ce && typeof ce.subject === "string") setConfirmationSubject(ce.subject);
@@ -1787,19 +1973,22 @@ export default function AddProductClient({
     if (Array.isArray(re?.timings)) {
       const parsedTimings = re.timings
         .filter((t) => t && typeof t === "object")
-        .map((t, idx) => ({
-          id:
-            typeof t.id === "string" && t.id
-              ? t.id
-              : typeof crypto !== "undefined" && "randomUUID" in crypto
-                ? crypto.randomUUID()
-                : `rem-${idx}-${Date.now()}`,
-          amount: String(t.amount ?? ""),
-          unit:
+        .map((t, idx): ReminderTiming => {
+          const normalizedUnit: ReminderTiming["unit"] =
             t.unit === "minute(s) before" || t.unit === "day(s) before"
               ? t.unit
-              : "hour(s) before",
-        }));
+              : "hour(s) before";
+          return {
+            id:
+              typeof t.id === "string" && t.id
+                ? t.id
+                : typeof crypto !== "undefined" && "randomUUID" in crypto
+                  ? crypto.randomUUID()
+                  : `rem-${idx}-${Date.now()}`,
+            amount: String(t.amount ?? ""),
+            unit: normalizedUnit,
+          };
+        });
       setReminderTimings(parsedTimings.length ? parsedTimings : DEFAULT_REMINDER_TIMINGS);
     } else {
       setReminderTimings(DEFAULT_REMINDER_TIMINGS);
@@ -1961,7 +2150,7 @@ export default function AddProductClient({
       isCoaching
         ? "Book a 1:1 Call with Me"
         : isWebinar
-          ? "Join Me at the Webinar"
+          ? ""
         : isCourse
           ? "Get started with this amazing course"
         : isCommunity
@@ -2085,6 +2274,15 @@ export default function AddProductClient({
     setDigitalRedirectUrl("");
     setDigitalFileName(null);
     setDigitalFileDataUrl(null);
+    setVideoUploadDone(false);
+    setVideoUploadInFlight(false);
+    setVideoUploadProgress(null);
+    setVideoUploadStatus("");
+    setAudioUploadDone(false);
+    setAudioUploadInFlight(false);
+    setAudioUploadProgress(null);
+    setAudioUploadStatus("");
+    latestSavedProductIdRef.current = null;
     setCustomCheckoutFields([]);
     setCustomCheckoutFieldCards([]);
     setThumbnailDataUrl(null);
@@ -2110,18 +2308,18 @@ export default function AddProductClient({
     ) => {
       const tabForSave = activeTabOverride ?? activeTab;
       const flows = emailFlowIdsOverride ?? emailFlowIds;
-      const resolvedType =
-        persistedProductType ||
-        inferProductTypeForSave({
-          kind: searchParams.get("kind") || "",
-          title,
-          subtitle,
-          buttonText,
-          activeTab: tabForSave,
-        });
+      const webinarMode = (searchParams.get("kind") || "").toLowerCase() === "webinar";
+      const hasUploadBackedFile =
+        Boolean(digitalFileDataUrl) || videoUploadDone || audioUploadDone;
+      const safeDigitalFileName =
+        digitalDelivery === "upload"
+          ? hasUploadBackedFile
+            ? digitalFileName
+            : null
+          : digitalFileName;
       return {
       id: productId || undefined,
-      product_type: resolvedType,
+      product_type: webinarMode ? "webinar" : undefined,
       status: saveStatus,
       active_tab:
         tabForSave === "availability" || tabForSave === "webinar"
@@ -2143,8 +2341,11 @@ export default function AddProductClient({
         discount_price: discountEnabled ? Number(discountPrice) || 0 : 0,
         digital_delivery: digitalDelivery,
         digital_redirect_url: digitalRedirectUrl,
-        digital_file_name: digitalFileName,
-        digital_file_data_url: digitalFileDataUrl,
+        digital_file_name: safeDigitalFileName,
+        digital_file_data_url:
+          typeof digitalFileDataUrl === "string" && /^data:(video|audio)\//i.test(digitalFileDataUrl)
+            ? null
+            : digitalFileDataUrl,
         custom_fields: customCheckoutFields,
         checkout_image_url: checkoutImageDataUrl,
       },
@@ -2163,6 +2364,17 @@ export default function AddProductClient({
           book_within_days: bookWithinDays,
           days: activeAvailabilityDays,
         },
+        ...(webinarMode
+          ? {
+              webinar: {
+                slots: webinarSlots,
+                meeting_location: meetingLocation,
+                time_zone: timeZone,
+                duration_mins: durationMins,
+                max_attendees: maxAttendees,
+              },
+            }
+          : {}),
         ...(fileLabel ? { attached_file_name: fileLabel } : {}),
         confirmation_email: {
           subject: confirmationSubject.slice(0, CONFIRMATION_SUBJECT_MAX),
@@ -2212,6 +2424,7 @@ export default function AddProductClient({
     afterMeetingMins,
     bookWithinDays,
     activeAvailabilityDays,
+    webinarSlots,
     fileLabel,
     confirmationSubject,
     confirmationBody,
@@ -2230,7 +2443,10 @@ export default function AddProductClient({
     digitalRedirectUrl,
     digitalFileName,
     digitalFileDataUrl,
+    videoUploadDone,
+    audioUploadDone,
     customCheckoutFields,
+    searchParams,
   ]);
 
   const saveToApi = useCallback(
@@ -2256,6 +2472,7 @@ export default function AddProductClient({
         if (!res.ok) throw new Error(data.message || "Save failed.");
         const p = data.product as ProductApi;
         if (p?.id) {
+          latestSavedProductIdRef.current = p.id;
           setProductId(p.id);
           const savedPt = typeof p.product_type === "string" ? p.product_type.trim() : "";
           if (savedPt) setPersistedProductType(savedPt);
@@ -2274,6 +2491,213 @@ export default function AddProductClient({
     },
     [token, buildBody, router]
   );
+
+  const ensureDraftProductId = useCallback(async (): Promise<string | null> => {
+    if (productId) return productId;
+    if (latestSavedProductIdRef.current) return latestSavedProductIdRef.current;
+    if (draftCreationPromiseRef.current) return draftCreationPromiseRef.current;
+    const task = (async () => {
+      setVideoUploadStatus("Creating draft...");
+      const ok = await saveToApi("draft");
+      if (!ok) return null;
+      const resolvedId =
+        latestSavedProductIdRef.current ||
+        productId ||
+        new URL(window.location.href).searchParams.get("id");
+      if (!resolvedId) return null;
+      setProductId(resolvedId);
+      return resolvedId;
+    })();
+    draftCreationPromiseRef.current = task;
+    try {
+      return await task;
+    } finally {
+      draftCreationPromiseRef.current = null;
+    }
+  }, [productId, saveToApi]);
+
+  const uploadVideoToStorage = useCallback(
+    async (file: File) => {
+      if (!token) throw new Error("Please log in again.");
+      setVideoUploadInFlight(true);
+      setVideoUploadDone(false);
+      setVideoUploadProgress(0);
+      const pid = await ensureDraftProductId();
+      if (!pid) throw new Error("Could not create draft. Please try again.");
+
+      const probe = await probeLocalVideoMetadata(file);
+      const form = new FormData();
+      form.append("video", file);
+      if (probe.duration != null && Number.isFinite(probe.duration)) {
+        form.append("duration", String(probe.duration));
+      }
+      if (probe.width != null && probe.width > 0) {
+        form.append("video_width", String(probe.width));
+      }
+      if (probe.height != null && probe.height > 0) {
+        form.append("video_height", String(probe.height));
+      }
+      form.append("resolution", "auto");
+      setVideoUploadStatus("Uploading video...");
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `${API_PRODUCTS_BASE}/${encodeURIComponent(pid!)}/video-upload`);
+        xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+        xhr.upload.onprogress = (evt) => {
+          if (!evt.lengthComputable) return;
+          setVideoUploadProgress(Math.max(0, Math.min(100, Math.round((evt.loaded / evt.total) * 100))));
+        };
+        xhr.onload = () => {
+          setVideoUploadProgress(100);
+          if (xhr.status >= 200 && xhr.status < 300) resolve();
+          else {
+            try {
+              const parsed = JSON.parse(xhr.responseText) as { message?: string };
+              reject(new Error(parsed.message || "Video upload failed."));
+            } catch {
+              reject(new Error("Video upload failed."));
+            }
+          }
+        };
+        xhr.onerror = () => reject(new Error("Network error while uploading video."));
+        xhr.send(form);
+      });
+      setVideoUploadStatus("Upload complete");
+      setVideoUploadDone(true);
+      latestSavedProductIdRef.current = pid;
+      setProductId(pid);
+    },
+    [token, ensureDraftProductId]
+  );
+
+  const safeUploadVideoToStorage = useCallback(
+    async (file: File) => {
+      try {
+        await uploadVideoToStorage(file);
+      } catch (err) {
+        setVideoUploadDone(false);
+        setVideoUploadStatus(err instanceof Error ? err.message : "Video upload failed.");
+        throw err;
+      } finally {
+        setVideoUploadInFlight(false);
+      }
+    },
+    [uploadVideoToStorage]
+  );
+
+  const uploadAudioToStorage = useCallback(
+    async (file: File) => {
+      if (!token) throw new Error("Please log in again.");
+      setAudioUploadInFlight(true);
+      setAudioUploadDone(false);
+      setAudioUploadProgress(0);
+      const pid = await ensureDraftProductId();
+      if (!pid) throw new Error("Could not create draft. Please try again.");
+
+      const probe = await probeLocalAudioMetadata(file);
+      const form = new FormData();
+      form.append("audio", file);
+      if (probe.duration != null && Number.isFinite(probe.duration)) {
+        form.append("duration", String(probe.duration));
+      }
+      setAudioUploadStatus("Uploading audio...");
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `${API_PRODUCTS_BASE}/${encodeURIComponent(pid!)}/audio-upload`);
+        xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+        xhr.upload.onprogress = (evt) => {
+          if (!evt.lengthComputable) return;
+          setAudioUploadProgress(Math.max(0, Math.min(100, Math.round((evt.loaded / evt.total) * 100))));
+        };
+        xhr.onload = () => {
+          setAudioUploadProgress(100);
+          if (xhr.status >= 200 && xhr.status < 300) resolve();
+          else {
+            try {
+              const parsed = JSON.parse(xhr.responseText) as { message?: string };
+              reject(new Error(parsed.message || "Audio upload failed."));
+            } catch {
+              reject(new Error("Audio upload failed."));
+            }
+          }
+        };
+        xhr.onerror = () => reject(new Error("Network error while uploading audio."));
+        xhr.send(form);
+      });
+      setAudioUploadStatus("Upload complete");
+      setAudioUploadDone(true);
+      latestSavedProductIdRef.current = pid;
+      setProductId(pid);
+    },
+    [token, ensureDraftProductId]
+  );
+
+  const safeUploadAudioToStorage = useCallback(
+    async (file: File) => {
+      try {
+        await uploadAudioToStorage(file);
+      } catch (err) {
+        setAudioUploadDone(false);
+        setAudioUploadStatus(err instanceof Error ? err.message : "Audio upload failed.");
+        throw err;
+      } finally {
+        setAudioUploadInFlight(false);
+      }
+    },
+    [uploadAudioToStorage]
+  );
+
+  const generateWebinarLinksAndNotify = useCallback(async () => {
+    if (!token) {
+      setSaveMsg("Please log in again.");
+      return;
+    }
+    if (!productId) {
+      setSaveMsg("Save this webinar product first, then generate links.");
+      return;
+    }
+    setWebinarBackfillRunning(true);
+    setWebinarBackfillMsg("");
+    try {
+      const res = await fetch(`${API_PRODUCTS_BASE}/${productId}/webinar/backfill-links`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          force_regenerate: false,
+          resend_existing: true,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        message?: string;
+        result?: {
+          total?: number;
+          links_generated?: number;
+          links_existing?: number;
+          buyer_emails_sent?: number;
+          buyer_whatsapp_accepted?: number;
+          owner_email_sent?: number;
+          errors?: Array<unknown>;
+        };
+      };
+      if (!res.ok || !data.ok || !data.result) {
+        throw new Error(data.message || "Could not generate webinar links.");
+      }
+      const r = data.result;
+      setWebinarBackfillMsg(
+        `Processed ${r.total || 0} registrations. Generated ${r.links_generated || 0} new links, sent ${r.buyer_emails_sent || 0} buyer emails, ${r.buyer_whatsapp_accepted || 0} buyer WhatsApp messages, owner email ${r.owner_email_sent ? "sent" : "not sent"}.`
+      );
+    } catch (e) {
+      setWebinarBackfillMsg(
+        e instanceof Error ? e.message : "Could not generate webinar links."
+      );
+    } finally {
+      setWebinarBackfillRunning(false);
+    }
+  }, [token, productId]);
 
   const readImageFileAsDataUrl = (file: File): Promise<string | null> =>
     new Promise((resolve) => {
@@ -3099,6 +3523,19 @@ export default function AddProductClient({
   };
 
   const handlePublish = async () => {
+    if (publishBlockedByMediaFlow) {
+      if (!productId) setSaveMsg("Create a draft first before publishing this media product.");
+      else if (videoUploadInFlight || audioUploadInFlight) {
+        setSaveMsg("Wait for the file upload to finish before publishing.");
+      } else if (publishBlockedByVideoFlow) {
+        setSaveMsg("Finish video upload before publishing.");
+      } else if (publishBlockedByAudioFlow) {
+        setSaveMsg("Finish audio upload before publishing.");
+      } else {
+        setSaveMsg("Complete upload before publishing.");
+      }
+      return;
+    }
     const e = isAffiliateFlow
       ? validateAffiliatePage(thumbnailDataUrl, title, affiliateUrl)
       : validatePublishTab(
@@ -3274,13 +3711,27 @@ export default function AddProductClient({
     !isCommunityFlow &&
     !isUrlMediaFlow &&
     !isAffiliateFlow;
+  const selectedFileIsVideo = /\.(mp4|webm|mov|m3u8)$/i.test(String(digitalFileName || ""));
+  const selectedFileIsAudio = /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(String(digitalFileName || ""));
+  const requiresVideoDraftAndUpload =
+    isDigitalProductFlow && digitalDelivery === "upload" && selectedFileIsVideo;
+  const requiresAudioDraftAndUpload =
+    isDigitalProductFlow && digitalDelivery === "upload" && selectedFileIsAudio;
+  const publishBlockedByVideoFlow =
+    requiresVideoDraftAndUpload &&
+    (!productId || videoUploadInFlight || !videoUploadDone);
+  const publishBlockedByAudioFlow =
+    requiresAudioDraftAndUpload &&
+    (!productId || audioUploadInFlight || !audioUploadDone);
+  const publishBlockedByMediaFlow = publishBlockedByVideoFlow || publishBlockedByAudioFlow;
+  const publishDisabled = saving || publishBlockedByMediaFlow;
   const dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
   const weekNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const monthTitle = blockMonth.toLocaleString("en-US", { month: "long", year: "numeric" });
   const monthStart = new Date(blockMonth.getFullYear(), blockMonth.getMonth(), 1);
   const gridStart = new Date(monthStart);
   gridStart.setDate(1 - monthStart.getDay());
-  const monthCells = Array.from({ length: 35 }, (_, i) => {
+  const monthCells = Array.from({ length: 42 }, (_, i) => {
     const d = new Date(gridStart);
     d.setDate(gridStart.getDate() + i);
     const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -3303,6 +3754,10 @@ export default function AddProductClient({
     setBlockToast("Success Time has been blocked off successfully.");
     window.setTimeout(() => setBlockToast(null), 2800);
   };
+  const toIsoDate = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+      d.getDate()
+    ).padStart(2, "0")}`;
   const webinarTimeOptions = [
     "1:00 PM",
     "1:15 PM",
@@ -3439,11 +3894,64 @@ export default function AddProductClient({
         ref={digitalFileRef}
         type="file"
         className="hidden"
-        accept="*/*"
+        accept=".pdf,application/pdf,video/*,audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac"
         onChange={(e) => {
           const file = e.target.files?.[0];
           if (!file) return;
+          const mime = String(file.type || "").toLowerCase();
+          const name = String(file.name || "").toLowerCase();
+          const allowedByMime =
+            mime === "application/pdf" || mime.startsWith("video/") || mime.startsWith("audio/");
+          const allowedByExt = /\.(pdf|mp4|webm|mov|m3u8|mp3|wav|m4a|aac|ogg|flac)$/i.test(name);
+          if (!allowedByMime && !allowedByExt) {
+            setToast("Unsupported file type. Allowed: PDF, video, and audio files.");
+            return;
+          }
           setDigitalFileName(file.name);
+          if (mime.startsWith("video/") || /\.(mp4|webm|mov|m3u8)$/i.test(name)) {
+            setDigitalFileDataUrl(null);
+            setAudioUploadDone(false);
+            setAudioUploadStatus("");
+            setAudioUploadProgress(null);
+            setVideoUploadDone(false);
+            setVideoUploadStatus("Creating draft...");
+            setToast("Uploading video...");
+            void safeUploadVideoToStorage(file)
+              .then(() => {
+                setToast("Video uploaded successfully.");
+                setVideoUploadProgress(null);
+              })
+              .catch((err) => {
+                setToast(err instanceof Error ? err.message : "Video upload failed.");
+                setVideoUploadProgress(null);
+              });
+            return;
+          }
+          if (mime.startsWith("audio/") || /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(name)) {
+            setDigitalFileDataUrl(null);
+            setVideoUploadDone(false);
+            setVideoUploadStatus("");
+            setVideoUploadProgress(null);
+            setAudioUploadDone(false);
+            setAudioUploadStatus("Creating draft...");
+            setToast("Uploading audio...");
+            void safeUploadAudioToStorage(file)
+              .then(() => {
+                setToast("Audio uploaded successfully.");
+                setAudioUploadProgress(null);
+              })
+              .catch((err) => {
+                setToast(err instanceof Error ? err.message : "Audio upload failed.");
+                setAudioUploadProgress(null);
+              });
+            return;
+          }
+          setVideoUploadDone(false);
+          setVideoUploadStatus("");
+          setVideoUploadProgress(null);
+          setAudioUploadDone(false);
+          setAudioUploadStatus("");
+          setAudioUploadProgress(null);
           const reader = new FileReader();
           reader.onload = () => {
             if (typeof reader.result === "string") {
@@ -3667,7 +4175,7 @@ export default function AddProductClient({
                       (isCustomThumbnail || isMembershipFlow || isAffiliateFlow) &&
                       opt.key === "preview"
                     )
-                ) as const
+                )
               ).map((opt) => (
                 <button
                   key={opt.key}
@@ -4007,14 +4515,15 @@ export default function AddProductClient({
                 id="desc-title"
                 value={title}
                 maxLength={TITLE_MAX}
-                disabled
                 onChange={(e) => {
                   setTitle(e.target.value);
                   setProductFormErrors((p) => ({ ...p, title: undefined }));
                 }}
                 aria-invalid={Boolean(productFormErrors.title)}
-                className={`mt-1 w-full rounded-xl border px-4 py-3 text-[15px] outline-none disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-500 ${
-                  productFormErrors.title ? "border-rose-500 ring-1 ring-rose-100" : "border-slate-200"
+                className={`mt-1 w-full rounded-xl border px-4 py-3 text-[15px] outline-none focus:ring-2 ${
+                  productFormErrors.title
+                    ? "border-rose-500 focus:border-rose-500 focus:ring-rose-100"
+                    : "border-slate-200 focus:border-violet-400 focus:ring-violet-100"
                 }`}
               />
               {productFormErrors.title ? (
@@ -4733,6 +5242,32 @@ export default function AddProductClient({
                   {digitalFileName ? (
                     <p className="mt-3 truncate text-sm text-slate-600">{digitalFileName}</p>
                   ) : null}
+                  {videoUploadProgress != null ? (
+                    <p className="mt-2 text-xs font-medium text-violet-700">
+                      Video upload progress: {videoUploadProgress}%
+                    </p>
+                  ) : null}
+                  {audioUploadProgress != null ? (
+                    <p className="mt-2 text-xs font-medium text-violet-700">
+                      Audio upload progress: {audioUploadProgress}%
+                    </p>
+                  ) : null}
+                  {videoUploadStatus ? (
+                    <p className="mt-1 text-xs font-medium text-slate-600">{videoUploadStatus}</p>
+                  ) : null}
+                  {audioUploadStatus ? (
+                    <p className="mt-1 text-xs font-medium text-slate-600">{audioUploadStatus}</p>
+                  ) : null}
+                  {requiresVideoDraftAndUpload ? (
+                    <p className="mt-1 text-xs text-slate-500">
+                      Publish unlocks after draft creation and successful video upload.
+                    </p>
+                  ) : null}
+                  {requiresAudioDraftAndUpload ? (
+                    <p className="mt-1 text-xs text-slate-500">
+                      Publish unlocks after draft creation and successful audio upload to storage.
+                    </p>
+                  ) : null}
                   {productFormErrors.digitalFile ? (
                     <p className="mt-2 text-xs font-medium text-rose-600">{productFormErrors.digitalFile}</p>
                   ) : null}
@@ -4784,9 +5319,21 @@ export default function AddProductClient({
                   <div className="relative">
                     <button
                       type="button"
-                      onClick={() =>
-                        setWebinarDatePickerIndex((prev) => (prev === idx ? null : idx))
-                      }
+                      onClick={() => {
+                        if (webinarDatePickerIndex !== idx) {
+                          const selectedDate = new Date(`${slot.dateIso}T00:00:00`);
+                          if (!Number.isNaN(selectedDate.getTime())) {
+                            setBlockMonth(
+                              new Date(
+                                selectedDate.getFullYear(),
+                                selectedDate.getMonth(),
+                                1
+                              )
+                            );
+                          }
+                        }
+                        setWebinarDatePickerIndex((prev) => (prev === idx ? null : idx));
+                      }}
                       className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-left text-lg font-semibold text-slate-800"
                     >
                       <span>{formatSlotDate(slot.dateIso)}</span>
@@ -4794,8 +5341,34 @@ export default function AddProductClient({
                     </button>
                     {webinarDatePickerIndex === idx ? (
                       <div className="absolute left-0 top-[calc(100%+8px)] z-30 w-[330px] rounded-xl border border-slate-200 bg-white p-4 shadow-xl">
-                        <div className="mb-2 text-center text-[38px] font-semibold text-slate-800">
-                          {monthTitle}
+                        <div className="mb-2 flex items-center justify-between">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setBlockMonth(
+                                (d) => new Date(d.getFullYear(), d.getMonth() - 1, 1)
+                              )
+                            }
+                            className="rounded-lg px-2 py-1 text-lg text-slate-500 hover:bg-slate-100"
+                            aria-label="Previous month"
+                          >
+                            ‹
+                          </button>
+                          <div className="text-center text-2xl font-semibold text-slate-800">
+                            {monthTitle}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setBlockMonth(
+                                (d) => new Date(d.getFullYear(), d.getMonth() + 1, 1)
+                              )
+                            }
+                            className="rounded-lg px-2 py-1 text-lg text-slate-500 hover:bg-slate-100"
+                            aria-label="Next month"
+                          >
+                            ›
+                          </button>
                         </div>
                         <div className="grid grid-cols-7 gap-y-2 text-center text-sm font-semibold text-slate-500">
                           {weekNames.map((w) => (
@@ -4888,7 +5461,9 @@ export default function AddProductClient({
               <button
                 type="button"
                 onClick={() => {
-                  setWebinarSlots((prev) => [...prev, { dateIso: "2026-04-27", time: "1:00 PM" }]);
+                  const today = new Date();
+                  const iso = toIsoDate(today);
+                  setWebinarSlots((prev) => [...prev, { dateIso: iso, time: "1:00 PM" }]);
                   setProductFormErrors((p) => ({ ...p, webinarSlots: undefined }));
                 }}
                 className="w-full rounded-xl border-2 border-violet-400 px-4 py-2.5 text-sm font-semibold text-violet-600"
@@ -4956,6 +5531,26 @@ export default function AddProductClient({
                 <span className="text-sm text-slate-400">seats/slot</span>
               </div>
             </div>
+          </section>
+
+          <section className="rounded-xl border border-slate-200 bg-white p-4">
+            <h2 className="text-sm font-semibold text-slate-900">Generate Zoom links and notify buyers</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Creates missing Zoom links for this webinar and sends the join link to buyers (email + WhatsApp) and your owner email.
+            </p>
+            <button
+              type="button"
+              disabled={webinarBackfillRunning || !token}
+              onClick={() => {
+                void generateWebinarLinksAndNotify();
+              }}
+              className="mt-3 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {webinarBackfillRunning ? "Generating..." : "Generate links and send notifications"}
+            </button>
+            {webinarBackfillMsg ? (
+              <p className="mt-2 text-xs font-medium text-slate-700">{webinarBackfillMsg}</p>
+            ) : null}
           </section>
         </div>
       ) : activeTab === "course" ? (
@@ -6213,7 +6808,7 @@ export default function AddProductClient({
               </button>
               <button
                 type="button"
-                disabled={saving}
+                disabled={publishDisabled}
                 onClick={() => void handlePublish()}
                 className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
                 style={{ backgroundColor: PURPLE }}
@@ -6250,10 +6845,14 @@ export default function AddProductClient({
           {activeTab === "checkout" ? (
             <button
               type="button"
-              disabled={saving}
-              onClick={goNextFromCheckout}
-              className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
-              style={{ backgroundColor: PURPLE }}
+                disabled={isWebinarFlow ? saving : publishDisabled}
+              onClick={isWebinarFlow ? goToWebinarTab : () => void handlePublish()}
+              className={
+                isWebinarFlow
+                  ? "rounded-full border-2 border-slate-200 bg-white px-6 py-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50 disabled:opacity-50"
+                  : "inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
+              }
+              style={isWebinarFlow ? undefined : { backgroundColor: PURPLE }}
             >
               Next
             </button>
@@ -6261,7 +6860,7 @@ export default function AddProductClient({
           {activeTab === "course" ? (
             <button
               type="button"
-              disabled={saving}
+              disabled={publishDisabled}
               onClick={() => void handlePublish()}
               className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
               style={{ backgroundColor: PURPLE }}
@@ -6272,7 +6871,7 @@ export default function AddProductClient({
           {activeTab === "webinar" ? (
             <button
               type="button"
-              disabled={saving}
+              disabled={publishDisabled}
               onClick={() => void handlePublish()}
               className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
               style={{ backgroundColor: PURPLE }}
@@ -6283,7 +6882,7 @@ export default function AddProductClient({
           {activeTab === "options" ? (
             <button
               type="button"
-              disabled={saving}
+              disabled={publishDisabled}
               onClick={() => void handlePublish()}
               className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
               style={{ backgroundColor: PURPLE }}
@@ -6294,7 +6893,7 @@ export default function AddProductClient({
           {activeTab === "availability" ? (
             <button
               type="button"
-              disabled={saving}
+              disabled={publishDisabled}
               onClick={() => void handlePublish()}
               className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
               style={{ backgroundColor: PURPLE }}
@@ -6306,7 +6905,7 @@ export default function AddProductClient({
             isUrlMediaFlow || isAffiliateFlow ? (
               <button
                 type="button"
-                disabled={saving}
+                disabled={publishDisabled}
                 onClick={() => void handlePublish()}
                 className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
                 style={{ backgroundColor: PURPLE }}

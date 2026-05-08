@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { API_PUBLIC_BASE } from "../../lib/api";
+import { API_PUBLIC_BASE, API_WEBINAR_HOST_BASE } from "../../lib/api";
 
 const PURPLE = "#6b46ff";
 
@@ -12,6 +12,8 @@ type Delivery = {
   type: string;
   file_name: string | null;
   redirect_url: string | null;
+  preview_url?: string | null;
+  preview_type?: "pdf" | "audio" | "video" | null;
   download_links?: Array<{ label: string; url: string }>;
 };
 
@@ -23,14 +25,49 @@ type OrderPayload = {
     currency: string;
     buyer_email: string | null;
     buyer_name: string | null;
+    buyer_phone?: string | null;
     payment_method: string;
     product_title: string | null;
+    product_id?: string | null;
   };
   delivery: Delivery;
   delivery_status?: {
-    email?: { status?: string; provider?: string | null; sent_at?: string | null };
-    whatsapp?: { status?: string; provider?: string | null; sent_at?: string | null };
+    email?: {
+      status?: string;
+      provider?: string | null;
+      sent_at?: string | null;
+      error_hint?: string | null;
+    };
+    whatsapp?: {
+      status?: string;
+      provider?: string | null;
+      sent_at?: string | null;
+      twilio_error?: { twilio_code?: string | null; message?: string | null } | null;
+    };
   };
+  webinar?: {
+    webinar_id?: string | null;
+    webinar_status?: string | null;
+    webinar_start_time?: string | null;
+    webinar_end_time?: string | null;
+    webinar_duration_mins?: number | null;
+    registration_id?: string | null;
+    slot_date?: string | null;
+    slot_time?: string | null;
+    time_zone?: string | null;
+    meeting_link?: string | null;
+    meeting_provider?: string | null;
+    meeting_location?: string | null;
+    meeting_start_at?: string | null;
+  } | null;
+};
+
+type SessionTrackResult = {
+  ok: boolean;
+  session?: {
+    attendance_secs?: number | null;
+    attendance_mark?: string | null;
+  } | null;
 };
 
 function mailSentSimple(status?: string) {
@@ -41,6 +78,31 @@ function mailSentSimple(status?: string) {
 function whatsAppSentSimple(status?: string) {
   const s = String(status || "").toLowerCase();
   return s === "sent" || s === "accepted" || s === "pending";
+}
+
+type DeliveryUiStatus = "sent" | "pending" | "failed" | "not_requested" | "not_configured";
+
+function normalizeDeliveryStatus(status?: string): DeliveryUiStatus {
+  const s = String(status || "").toLowerCase();
+  if (s === "sent" || s === "accepted") return "sent";
+  if (s === "not_configured") return "not_configured";
+  if (s === "pending" || s === "queued") return "pending";
+  if (s === "failed") return "failed";
+  return "not_requested";
+}
+
+function statusBadgeClasses(status: DeliveryUiStatus): string {
+  if (status === "sent") return "bg-emerald-100 text-emerald-700";
+  if (status === "pending") return "bg-amber-100 text-amber-700";
+  if (status === "failed") return "bg-red-100 text-red-700";
+  if (status === "not_configured") return "bg-amber-100 text-amber-800";
+  return "bg-slate-100 text-slate-600";
+}
+
+function statusLabel(status: DeliveryUiStatus): string {
+  if (status === "not_requested") return "not requested";
+  if (status === "not_configured") return "not configured";
+  return status;
 }
 
 export default function ThankYouPage() {
@@ -63,6 +125,16 @@ export default function ThankYouPage() {
   const [data, setData] = useState<OrderPayload | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState("");
+  const [webinarSessionJoined, setWebinarSessionJoined] = useState(false);
+  const [webinarSessionEverJoined, setWebinarSessionEverJoined] = useState(false);
+  const [webinarSessionStatus, setWebinarSessionStatus] = useState("");
+  const [attendanceMark, setAttendanceMark] = useState("");
+  const [attendanceSecs, setAttendanceSecs] = useState<number | null>(null);
+  const [feedbackRating, setFeedbackRating] = useState("5");
+  const [feedbackText, setFeedbackText] = useState("");
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  const [feedbackError, setFeedbackError] = useState("");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -75,14 +147,19 @@ export default function ThankYouPage() {
   useEffect(() => {
     if (!hasAccessParams || !orderId || !token) return;
     let cancelled = false;
-    void (async () => {
+    let pollCount = 0;
+
+    async function loadOrder(isPoll: boolean) {
+      const oid = orderId ?? "";
+      const tok = token ?? "";
+      if (!oid || !tok) return;
       try {
         const tokenValue =
           typeof window === "undefined"
             ? ""
             : localStorage.getItem("buyer_auth_token") || "";
         const res = await fetch(
-          `${API_PUBLIC_BASE}/order/${encodeURIComponent(orderId)}?token=${encodeURIComponent(token)}`,
+          `${API_PUBLIC_BASE}/order/${encodeURIComponent(oid)}?token=${encodeURIComponent(tok)}`,
           {
             cache: "no-store",
             headers: tokenValue ? { Authorization: `Bearer ${tokenValue}` } : {},
@@ -107,15 +184,89 @@ export default function ThankYouPage() {
         if (!res.ok) throw new Error(json.message || "Could not load order.");
         if (!cancelled) setData(json as OrderPayload);
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Could not load order.");
+        if (!cancelled && !isPoll) {
+          setError(e instanceof Error ? e.message : "Could not load order.");
+        }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && !isPoll) setLoading(false);
       }
-    })();
+    }
+
+    void loadOrder(false);
+
+    const pollMs = 2500;
+    const maxPolls = 6;
+    const timer = window.setInterval(() => {
+      if (cancelled) return;
+      pollCount += 1;
+      if (pollCount > maxPolls) {
+        window.clearInterval(timer);
+        return;
+      }
+      void loadOrder(true);
+    }, pollMs);
+
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
     };
   }, [hasAccessParams, orderId, token, router]);
+
+  useEffect(() => {
+    if (!data?.webinar?.webinar_id || !webinarSessionJoined) return;
+    const webinarId = data.webinar.webinar_id;
+    const timer = window.setInterval(() => {
+      void trackWebinarSession("heartbeat", webinarId);
+    }, 30000);
+    const onPageHide = () => {
+      void trackWebinarSession("leave", webinarId).then((result) => {
+        if (result.ok) {
+          setAttendanceMark(String(result.session?.attendance_mark || ""));
+          setAttendanceSecs(
+            typeof result.session?.attendance_secs === "number"
+              ? result.session.attendance_secs
+              : null
+          );
+        }
+      });
+      setWebinarSessionJoined(false);
+    };
+    window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("beforeunload", onPageHide);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("beforeunload", onPageHide);
+      void trackWebinarSession("leave", webinarId);
+    };
+  }, [data?.webinar?.webinar_id, webinarSessionJoined]);
+
+  useEffect(() => {
+    if (!webinarSessionEverJoined || !orderId || !token) return;
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      const tokenValue = localStorage.getItem("buyer_auth_token") || "";
+      if (!tokenValue) return;
+      void fetch(
+        `${API_PUBLIC_BASE}/order/${encodeURIComponent(orderId)}?token=${encodeURIComponent(token)}`,
+        {
+          cache: "no-store",
+          headers: { Authorization: `Bearer ${tokenValue}` },
+        }
+      )
+        .then((res) => res.json().then((json) => ({ ok: res.ok, json })))
+        .then(({ ok, json }) => {
+          if (ok) setData(json as OrderPayload);
+        })
+        .catch(() => {
+          /* ignore silent refresh errors */
+        });
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [webinarSessionEverJoined, orderId, token]);
 
   if (loading) {
     return (
@@ -137,12 +288,44 @@ export default function ThankYouPage() {
   }
 
   const { order, delivery, delivery_status: status } = data;
+  const webinar = data.webinar;
   const showMailLine = mailSentSimple(status?.email?.status);
   const showWhatsAppLine = whatsAppSentSimple(status?.whatsapp?.status);
+  const emailDelivery = normalizeDeliveryStatus(status?.email?.status);
+  const whatsappDelivery = normalizeDeliveryStatus(status?.whatsapp?.status);
+  const zoomLinkReady = Boolean(webinar?.meeting_link);
   const amount = Number(order.amount) || 0;
   const showRedirect =
     delivery.type === "redirect" && delivery.redirect_url && /^https?:\/\//i.test(delivery.redirect_url);
   const firstDownload = delivery.download_links?.[0];
+  const webinarEnded =
+    Boolean(webinar?.webinar_end_time) || String(webinar?.webinar_status || "") === "ended";
+  const webinarStartMs = webinar?.webinar_start_time
+    ? new Date(webinar.webinar_start_time).getTime()
+    : Number.NaN;
+  const webinarEndMs = webinar?.webinar_end_time
+    ? new Date(webinar.webinar_end_time).getTime()
+    : Number.NaN;
+  const webinarDurationMins =
+    !Number.isNaN(webinarStartMs) && !Number.isNaN(webinarEndMs)
+      ? Math.max(0, Number(((webinarEndMs - webinarStartMs) / 60000).toFixed(2)))
+      : null;
+  const endedEarly =
+    webinarEnded &&
+    webinarDurationMins != null &&
+    Number(webinar?.webinar_duration_mins || 0) > 0 &&
+    webinarDurationMins < Number(webinar?.webinar_duration_mins || 0);
+  const attendanceLabel =
+    String(attendanceMark || "").toLowerCase() === "completed"
+      ? "Completed"
+      : String(attendanceMark || "").toLowerCase() === "partial"
+        ? "Partial"
+        : String(attendanceMark || "").toLowerCase() === "missed"
+          ? "Not attended"
+          : webinarEnded && webinarSessionEverJoined
+            ? "Not attended"
+            : "—";
+  const showFeedbackForm = webinarEnded && webinarSessionEverJoined && !feedbackSubmitted;
 
   const triggerDownload = async () => {
     if (!token) return;
@@ -181,6 +364,68 @@ export default function ThankYouPage() {
       setDownloadError(e instanceof Error ? e.message : "Download failed.");
     } finally {
       setDownloading(false);
+    }
+  };
+
+  const submitFeedback = async () => {
+    try {
+      setFeedbackBusy(true);
+      setFeedbackError("");
+      const res = await fetch(`${API_PUBLIC_BASE}/track`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username,
+          event_type: "webinar_feedback_submitted",
+          product_id: order.product_id || undefined,
+          metadata: {
+            webinar_id: webinar?.webinar_id || null,
+            rating: Number(feedbackRating) || 0,
+            feedback: feedbackText.trim(),
+            attendance_mark: attendanceMark || null,
+            attendance_secs: attendanceSecs,
+            ended_early: endedEarly,
+          },
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((json as { message?: string }).message || "Could not submit feedback.");
+      }
+      setFeedbackSubmitted(true);
+      setWebinarSessionStatus("Thanks! Your webinar feedback has been submitted.");
+    } catch (e) {
+      setFeedbackError(e instanceof Error ? e.message : "Could not submit feedback.");
+    } finally {
+      setFeedbackBusy(false);
+    }
+  };
+
+  const trackWebinarSession = async (
+    action: "join" | "heartbeat" | "leave",
+    webinarId: string
+  ): Promise<SessionTrackResult> => {
+    try {
+      const tokenValue =
+        typeof window === "undefined" ? "" : localStorage.getItem("buyer_auth_token") || "";
+      if (!tokenValue) return { ok: false };
+      const res = await fetch(`${API_WEBINAR_HOST_BASE}/session/${action}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${tokenValue}`,
+        },
+        body: JSON.stringify({ webinar_id: webinarId }),
+        keepalive: action === "leave",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) return { ok: false };
+      return {
+        ok: true,
+        session: (json as { session?: SessionTrackResult["session"] }).session || null,
+      };
+    } catch {
+      return { ok: false };
     }
   };
 
@@ -237,6 +482,20 @@ export default function ThankYouPage() {
               >
                 Open download link
               </a>
+            ) : delivery.preview_url ? (
+              <a
+                href={delivery.preview_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 flex w-full items-center justify-center rounded-full py-3.5 text-[15px] font-bold text-white transition hover:opacity-95"
+                style={{ backgroundColor: PURPLE }}
+              >
+                {delivery.preview_type === "audio"
+                  ? "Listen Now"
+                  : delivery.preview_type === "video"
+                    ? "Watch Now"
+                    : "View & Download"}
+              </a>
             ) : firstDownload?.url ? (
               <button
                 type="button"
@@ -275,15 +534,6 @@ export default function ThankYouPage() {
               Receipt and delivery are sent to your email and WhatsApp when configured by the seller.
             </p>
           </div>
-<<<<<<< Updated upstream
-          {showMailLine || showWhatsAppLine ? (
-            <div className="mt-5 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
-              <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Delivery status</p>
-              <ul className="mt-2 space-y-1 text-sm text-slate-800">
-                {showMailLine ? <li>Sent on mail.</li> : null}
-                {showWhatsAppLine ? <li>Sent on WhatsApp.</li> : null}
-              </ul>
-=======
           <div className="mt-5 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
             <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Delivery status</p>
             <div className="mt-3 space-y-2 text-sm text-slate-800">
@@ -293,12 +543,12 @@ export default function ThankYouPage() {
                   {statusLabel(emailDelivery)}
                 </span>
               </div>
-              {/* <div className="flex items-center justify-between rounded-lg bg-white px-3 py-2">
+              <div className="flex items-center justify-between rounded-lg bg-white px-3 py-2">
                 <span>WhatsApp</span>
                 <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadgeClasses(whatsappDelivery)}`}>
                   {statusLabel(whatsappDelivery)}
                 </span>
-              </div> */}
+              </div>
               {webinar ? (
                 <div className="rounded-lg bg-white px-3 py-2">
                   <div className="flex items-center justify-between">
@@ -413,9 +663,39 @@ export default function ThankYouPage() {
                   ) : null}
                 </div>
               ) : null}
->>>>>>> Stashed changes
+
             </div>
-          ) : null}
+            <div className="mt-3 space-y-1 text-xs text-slate-500">
+              {emailDelivery === "failed" ? (
+                <>
+                  <p>
+                    Email did not send. In <code className="rounded bg-slate-100 px-1">store-backend/.env</code> set
+                    either SMTP (Gmail etc.) or{" "}
+                    <code className="rounded bg-slate-100 px-1">RESEND_API_KEY</code> +{" "}
+                    <code className="rounded bg-slate-100 px-1">RESEND_FROM_EMAIL</code>, then restart the API.
+                  </p>
+                  {status?.email?.error_hint ? (
+                    <p className="mt-1 break-words font-mono text-[11px] text-slate-600">
+                      {status.email.error_hint}
+                    </p>
+                  ) : null}
+                </>
+              ) : null}
+              {whatsappDelivery === "not_configured" ? (
+                <p>
+                  WhatsApp is not set up. Add Twilio WhatsApp env vars in{" "}
+                  <code className="rounded bg-slate-100 px-1">store-backend/.env</code> (see{" "}
+                  <code className="rounded bg-slate-100 px-1">.env.example</code>) and restart.
+                </p>
+              ) : null}
+              {whatsappDelivery === "not_requested" && webinar ? (
+                <p>WhatsApp was not requested for this order (missing/invalid phone at checkout).</p>
+              ) : null}
+              {(showMailLine || showWhatsAppLine) && !webinar ? (
+                <p>Delivery is in progress and usually completes quickly.</p>
+              ) : null}
+            </div>
+          </div>
 
           <Link
             href={username ? `/${encodeURIComponent(username)}` : "/"}
