@@ -22,7 +22,7 @@ import {
 const PURPLE = "#1f2a44";
 export const SIDEBAR_BG = "#f3f0ea";
 
-export type NavContext = "store-home" | "add-product" | "income";
+export type NavContext = "store-home" | "add-product" | "income" | "settings";
 
 type NavItem = {
   id: string;
@@ -155,14 +155,16 @@ export default function DashboardShell({
       </nav>
 
       <div className="mt-auto flex flex-col gap-1 border-t border-[#e7dcc9]/80 pt-4">
-        <a
-          href="#"
-          className="flex items-center gap-3 rounded-2xl px-3 py-2.5 text-[15px] font-medium text-slate-600 hover:bg-white/70"
+        <Link
+          href="/dashboard/settings"
+          className={navLinkClass(navContext === "settings")}
           onClick={closeMobileNav}
         >
-          <IconGear className="shrink-0 text-[#b08d57]" />
+          <IconGear
+            className={`shrink-0 ${navContext === "settings" ? "text-[#1f2a44]" : "text-[#b08d57]"}`}
+          />
           Settings
-        </a>
+        </Link>
         <div className="flex items-center gap-3 rounded-2xl px-3 py-2">
           <div
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-[#5b8ac4]"

@@ -422,7 +422,7 @@ export default function PublicStorePage({ username }: { username: string }) {
     }
 
     const normalizedPhone = normalizeLeadPhoneFreeform(referForm.phoneNumber);
-    const phoneErr = validateLeadPhoneFreeform(normalizedPhone);
+    const phoneErr = validateLeadPhoneFreeform(normalizedPhone ?? "");
     if (phoneErr) next.phoneNumber = phoneErr;
 
     if (!referForm.category) {

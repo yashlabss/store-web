@@ -308,10 +308,13 @@ function RequiredToggle({ value, onChange }: { value: boolean; onChange: (next: 
         role="switch"
         aria-checked={value}
         onClick={() => onChange(!value)}
-        className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${value ? "bg-indigo-500" : "bg-slate-300"}`}
+        className="relative inline-flex h-5 w-10 shrink-0 items-center rounded-full bg-[#bfd0e6] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8fa8cc]"
+        aria-label={value ? "Required on" : "Required off"}
       >
         <span
-          className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-[left] ${value ? "left-4" : "left-0.5"}`}
+          className={`pointer-events-none absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 ease-out will-change-transform ${
+            value ? "translate-x-5" : "translate-x-0.5"
+          }`}
         />
       </button>
     </div>

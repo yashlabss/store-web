@@ -107,8 +107,8 @@ export function normalizeLeadPhoneFreeform(raw: string): string | null {
 export function validatePassword(p: string): string | undefined {
   if (!p) return "Password is required.";
   if (/\s/.test(p)) return "Password cannot contain spaces.";
-  if (p.length < 4 || p.length > 8)
-    return "Password must be between 4 and 8 characters.";
+  if (p.length < 8) return "Password must be at least 8 characters.";
+  if (p.length > 64) return "Password must be at most 64 characters.";
   if (!/[a-z]/.test(p))
     return "Password must include a lowercase letter.";
   if (!/[A-Z]/.test(p))

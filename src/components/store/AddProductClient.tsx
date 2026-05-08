@@ -4321,12 +4321,10 @@ export default function AddProductClient({
                         return next;
                       });
                     }}
-                    className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors ${
-                      discountEnabled ? "bg-violet-500" : "bg-[#bfd0e6]"
-                    }`}
+                    className="relative inline-flex h-5 w-10 shrink-0 items-center rounded-full bg-[#bfd0e6] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8fa8cc]"
                   >
                     <span
-                      className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                      className={`pointer-events-none absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 ease-out will-change-transform ${
                         discountEnabled ? "translate-x-5" : "translate-x-0.5"
                       }`}
                     />
@@ -4576,19 +4574,21 @@ export default function AddProductClient({
                     </div>
                   ) : null}
                   <div className="mt-3 flex items-center justify-end gap-3">
-                    <span className="text-sm font-semibold text-slate-700">Required</span>
+                    <span className="text-xs font-medium text-slate-600">Required</span>
                     <button
                       type="button"
+                      role="switch"
+                      aria-checked={field.required}
                       onClick={() => {
                         setCustomCheckoutFieldCards((prev) =>
                           prev.map((f) => (f.id === field.id ? { ...f, required: !f.required } : f))
                         );
                       }}
-                      className={`relative h-5 w-10 rounded-full ${field.required ? "bg-violet-500" : "bg-slate-300"}`}
+                      className="relative inline-flex h-5 w-10 shrink-0 items-center rounded-full bg-[#bfd0e6] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8fa8cc]"
                       aria-label="Required toggle"
                     >
                       <span
-                        className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${
+                        className={`pointer-events-none absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 ease-out will-change-transform ${
                           field.required ? "translate-x-5" : "translate-x-0.5"
                         }`}
                       />

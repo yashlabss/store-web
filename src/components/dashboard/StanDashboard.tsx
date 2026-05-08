@@ -1080,7 +1080,7 @@ export default function StanDashboard({ displayName, handle, showName, onSignOut
             <ul className="flex flex-col gap-3">
               <ProductListRowSkeleton />
             </ul>
-          ) : filteredProducts.length === 0 ? (
+          ) : (filteredProducts ?? []).length === 0 ? (
             <p className="flex min-h-[80px] items-center justify-center rounded-2xl border border-dashed border-[#d8c7ab] bg-[#fbf7f0] px-4 text-center text-sm text-slate-500">
               {activeTab === "landing"
                 ? "No landing pages yet. Add one below."
@@ -1094,7 +1094,7 @@ export default function StanDashboard({ displayName, handle, showName, onSignOut
                 isFiltering ? "scale-[0.995] opacity-70" : "scale-100 opacity-100"
               }`}
             >
-              {filteredProducts.map((p) => (
+              {(filteredProducts ?? []).map((p) => (
                 <ProductListRow
                   key={p.id}
                   p={p}
