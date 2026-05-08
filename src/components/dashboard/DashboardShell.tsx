@@ -22,7 +22,7 @@ import {
 const PURPLE = "#1f2a44";
 export const SIDEBAR_BG = "#f3f0ea";
 
-export type NavContext = "store-home" | "add-product" | "income";
+export type NavContext = "home" | "store-home" | "add-product" | "income";
 
 type NavItem = {
   id: string;
@@ -34,10 +34,11 @@ type NavItem = {
 };
 
 function navItems(ctx: NavContext): NavItem[] {
+  const homeActive = ctx === "home";
   const storeActive = ctx === "store-home" || ctx === "add-product";
   const incomeActive = ctx === "income";
   return [
-    { id: "home", label: "Home", Icon: IconHome, href: "/", useLink: true },
+    { id: "home", label: "Home", Icon: IconHome, href: "/dashboard/home", active: homeActive, useLink: true },
     {
       id: "store",
       label: "My Store",
@@ -67,7 +68,7 @@ function LogoMark() {
       className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[15px] font-bold text-white shadow-sm"
       style={{ backgroundColor: PURPLE }}
     >
-      $
+      M
     </div>
   );
 }
@@ -99,7 +100,7 @@ export default function DashboardShell({
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const storeUrl = `stan.store/${handle}`;
+  const storeUrl = `mintlin.com/${handle}`;
   const fullUrl = `https://${storeUrl}`;
 
   const copyStoreUrl = useCallback(async () => {
@@ -127,7 +128,7 @@ export default function DashboardShell({
     <div className="flex h-full min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-2.5 px-3 pt-2 lg:pt-0">
         <LogoMark />
-        <span className="text-[1.35rem] font-bold tracking-tight text-[#1f2a44]">Stan</span>
+        <span className="text-[1.35rem] font-bold tracking-tight text-[#1f2a44]">Mintlin</span>
       </div>
 
       <nav className="mt-6 flex flex-col gap-0.5 px-2 lg:mt-8" aria-label="Main">
@@ -203,7 +204,7 @@ export default function DashboardShell({
         </button>
         <div className="flex flex-1 items-center justify-center gap-2">
           <LogoMark />
-          <span className="text-lg font-bold text-[#1f2a44]">Stan</span>
+          <span className="text-lg font-bold text-[#1f2a44]">Mintlin</span>
         </div>
         <div className="w-11 shrink-0" aria-hidden />
       </header>

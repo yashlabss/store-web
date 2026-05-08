@@ -55,11 +55,15 @@ export function validatePhone(
   const digits = nationalDigitsOnly.replace(/\D/g, "");
   if (!digits) return "Phone number is required.";
   const dial = dialPrefix.trim();
-  if (!dial.startsWith("+")) return "Invalid country code.";
+  if (dial !== "+91") return "Only Indian mobile numbers are supported.";
+  if (digits.length !== 10) return "For India (+91), phone number must be exactly 10 digits.";
+  if (!/^[6-9]\d{9}$/.test(digits)) {
+    return "Indian mobile number must start with 6, 7, 8, or 9.";
+  }
   const full = `${dial}${digits}`;
   const parsed = parsePhoneNumberFromString(full);
   if (!parsed || !parsed.isValid()) {
-    return "Enter a valid phone number for the selected country.";
+    return "Enter a valid Indian mobile number.";
   }
   return undefined;
 }

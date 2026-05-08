@@ -13,17 +13,9 @@ import {
   validateUsername,
 } from "../../lib/signupValidation";
 
-/** Dial codes with flag emojis — order matches common flows; default +91 like reference. */
+/** India-only signup phone input. */
 const COUNTRIES = [
   { flag: "🇮🇳", dial: "+91", label: "India" },
-  { flag: "🇺🇸", dial: "+1", label: "United States" },
-  { flag: "🇬🇧", dial: "+44", label: "United Kingdom" },
-  { flag: "🇦🇺", dial: "+61", label: "Australia" },
-  { flag: "🇩🇪", dial: "+49", label: "Germany" },
-  { flag: "🇫🇷", dial: "+33", label: "France" },
-  { flag: "🇯🇵", dial: "+81", label: "Japan" },
-  { flag: "🇧🇷", dial: "+55", label: "Brazil" },
-  { flag: "🇲🇽", dial: "+52", label: "Mexico" },
 ] as const;
 
 type FormState = {
@@ -365,7 +357,7 @@ export default function SignupForm() {
         </div>
 
         <form className="space-y-[17px]" onSubmit={handleSubmit} noValidate>
-          {/* Username: @  yash.store/  [username] */}
+          {/* Username: @  mintlin.com/  [username] */}
           <div>
             <div
               className={`${fieldClass} ${
@@ -383,7 +375,7 @@ export default function SignupForm() {
                 @
               </span>
               <span className="shrink-0 whitespace-nowrap text-[15px] font-bold text-slate-900">
-                yash.store/
+                mintlin.com/
               </span>
               <input
                 id="username"
@@ -538,6 +530,7 @@ export default function SignupForm() {
                   suppressHydrationWarning
                   className="absolute inset-0 cursor-pointer rounded-lg opacity-0"
                   value={form.countryCode}
+                  disabled
                   onChange={(e) => {
                     setField("countryCode", e.target.value);
                     setErrors((prev) => {

@@ -70,8 +70,10 @@ export default function LoginForm() {
       <section className="mx-auto w-full max-w-md py-4 sm:py-8">
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
           <div className="inline-flex items-center gap-2">
-            <span className="inline-block h-8 w-8 rounded-full bg-indigo-600" />
-            <span className="text-3xl font-bold text-slate-900">Creator Store</span>
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-indigo-600 text-sm font-bold text-white">
+              M
+            </span>
+            <span className="text-3xl font-bold text-slate-900">Mintlin</span>
           </div>
           <h1 className="text-3xl font-bold tracking-tight text-[#1f1b4b] sm:text-4xl">
             Sign in

@@ -57,8 +57,6 @@ type LeadFormState = {
   answers: Record<string, string>;
 };
 
-<<<<<<< Updated upstream
-=======
 type LeadValidationErrors = {
   general?: string;
   name?: string;
@@ -151,7 +149,6 @@ function normalizePhoneForApi(rawPhone: string, dialCode: string): string {
   return /^\+\d{8,15}$/.test(full) ? full : "";
 }
 
->>>>>>> Stashed changes
 function displayPrice(p: PublicProduct): number {
   const cj = p.checkout_json || {};
   if (cj.discount_enabled && Number(cj.discount_price) > 0) {
@@ -596,18 +593,6 @@ export default function PublicStorePage({ username }: { username: string }) {
               </span>
             </div>
           ) : null}
-<<<<<<< Updated upstream
-=======
-          {/* <div className="mb-5 flex justify-end">
-            <button
-              type="button"
-              onClick={() => setReferModalOpen(true)}
-              className="inline-flex items-center rounded-full border border-[#0a7a69]/30 bg-[#0a7a69]/10 px-4 py-2 text-sm font-semibold text-[#0a7a69] transition hover:border-[#0a7a69] hover:bg-[#0a7a69] hover:text-white"
-            >
-              Refer and Earn
-            </button>
-          </div> */}
->>>>>>> Stashed changes
           {products.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 p-8 text-center">
               <p className="font-medium text-slate-700">No products to show yet</p>
