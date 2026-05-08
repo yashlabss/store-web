@@ -57,6 +57,101 @@ type LeadFormState = {
   answers: Record<string, string>;
 };
 
+<<<<<<< Updated upstream
+=======
+type LeadValidationErrors = {
+  general?: string;
+  name?: string;
+  email?: string;
+  answers?: Record<string, string>;
+};
+
+type LeadDeliveryInfo = {
+  file_download_url?: string | null;
+  bonus_url?: string | null;
+};
+
+const CUSTOM_FIELD_MAX = 2000;
+
+function isPhoneLikeCustomField(label: string) {
+  return /whatsapp|phone|mobile/i.test(label);
+}
+
+type WebinarChoiceState = {
+  slotKey: string;
+  wantsRecording: boolean;
+};
+
+type WebinarCheckoutState = {
+  email: string;
+  phone: string;
+  countryCode: string;
+  dialCode: string;
+};
+
+type ReferCategoryKey =
+  | "collect_emails_applications"
+  | "digital_product"
+  | "coaching"
+  | "custom_product"
+  | "ecourse"
+  | "recurring_membership"
+  | "webinar"
+  | "community"
+  | "url_media"
+  | "stan_affiliate";
+
+type ReferFormState = {
+  name: string;
+  email: string;
+  phoneNumber: string;
+  category: ReferCategoryKey | "";
+};
+
+type ReferFormErrors = {
+  name?: string;
+  email?: string;
+  phoneNumber?: string;
+  category?: string;
+};
+
+const PHONE_COUNTRY_OPTIONS = [
+  { code: "IN", label: "India", dialCode: "+91" },
+  { code: "US", label: "United States", dialCode: "+1" },
+  { code: "GB", label: "United Kingdom", dialCode: "+44" },
+  { code: "AE", label: "UAE", dialCode: "+971" },
+  { code: "SG", label: "Singapore", dialCode: "+65" },
+  { code: "AU", label: "Australia", dialCode: "+61" },
+] as const;
+
+// const REFER_CATEGORY_OPTIONS: Array<{ value: ReferCategoryKey; label: string }> = [
+//   { value: "collect_emails_applications", label: "Email Collections" },
+//   { value: "digital_product", label: "Product Hub" },
+//   { value: "coaching", label: "Coaching" },
+//   { value: "custom_product", label: "Custom Product" },
+//   { value: "ecourse", label: "eCourse" },
+//   { value: "recurring_membership", label: "Recurring Membership" },
+//   { value: "webinar", label: "Webinar" },
+//   { value: "community", label: "Community" },
+//   { value: "url_media", label: "URL / Media" },
+//   { value: "stan_affiliate", label: "Stan Affiliate Link" },
+// ];
+
+function normalizePhoneForApi(rawPhone: string, dialCode: string): string {
+  const raw = String(rawPhone || "").trim();
+  const dial = String(dialCode || "").trim() || "+91";
+  if (!raw) return "";
+  if (raw.startsWith("+")) {
+    const digits = raw.replace(/[^\d+]/g, "");
+    return /^\+\d{8,15}$/.test(digits) ? digits : "";
+  }
+  const localDigits = raw.replace(/\D/g, "");
+  if (!localDigits) return "";
+  const full = `${dial}${localDigits}`.replace(/\s+/g, "");
+  return /^\+\d{8,15}$/.test(full) ? full : "";
+}
+
+>>>>>>> Stashed changes
 function displayPrice(p: PublicProduct): number {
   const cj = p.checkout_json || {};
   if (cj.discount_enabled && Number(cj.discount_price) > 0) {
@@ -501,6 +596,18 @@ export default function PublicStorePage({ username }: { username: string }) {
               </span>
             </div>
           ) : null}
+<<<<<<< Updated upstream
+=======
+          {/* <div className="mb-5 flex justify-end">
+            <button
+              type="button"
+              onClick={() => setReferModalOpen(true)}
+              className="inline-flex items-center rounded-full border border-[#0a7a69]/30 bg-[#0a7a69]/10 px-4 py-2 text-sm font-semibold text-[#0a7a69] transition hover:border-[#0a7a69] hover:bg-[#0a7a69] hover:text-white"
+            >
+              Refer and Earn
+            </button>
+          </div> */}
+>>>>>>> Stashed changes
           {products.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 p-8 text-center">
               <p className="font-medium text-slate-700">No products to show yet</p>

@@ -46,18 +46,18 @@ function navItems(ctx: NavContext): NavItem[] {
       active: storeActive,
       useLink: true,
     },
-    {
-      id: "income",
-      label: "Income",
-      Icon: IconWallet,
-      href: "/dashboard/income",
-      active: incomeActive,
-      useLink: true,
-    },
-    { id: "analytics", label: "Analytics", Icon: IconChart, href: "#" },
-    { id: "customers", label: "Customers", Icon: IconHeart, href: "#" },
-    { id: "autodm", label: "AutoDM", Icon: IconPlane, href: "#" },
-    { id: "more", label: "More", Icon: IconPlusSm, href: "#" },
+    // {
+    //   id: "income",
+    //   label: "Income",
+    //   Icon: IconWallet,
+    //   href: "/dashboard/income",
+    //   active: incomeActive,
+    //   useLink: true,
+    // },
+    // { id: "analytics", label: "Analytics", Icon: IconChart, href: "#" },
+    // { id: "customers", label: "Customers", Icon: IconHeart, href: "#" },
+    // { id: "autodm", label: "AutoDM", Icon: IconPlane, href: "#" },
+    // { id: "more", label: "More", Icon: IconPlusSm, href: "#" },
   ];
 }
 

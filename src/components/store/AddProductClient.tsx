@@ -4673,11 +4673,11 @@ export default function AddProductClient({
           {isDigitalProductFlow ? (
             <section>
               <h2 className="text-base font-bold text-slate-900">
-                5<span className="ml-2 font-semibold">Upload your Digital Product</span>
+                5<span className="ml-2 font-semibold">Upload your files</span>
               </h2>
               <div className="mt-4">
                 <label className="text-sm font-semibold text-slate-800">
-                  Digital Product <span className="text-rose-500">*</span>
+                  Product Hub <span className="text-rose-500">*</span>
                 </label>
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
                   <p className="text-sm text-slate-900">

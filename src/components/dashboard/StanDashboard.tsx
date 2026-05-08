@@ -513,6 +513,10 @@ export default function StanDashboard({ displayName, handle, showName, onSignOut
     products == null
       ? null
       : products.filter((p) => (activeTab === "landing" ? isLandingProduct(p) : !isLandingProduct(p)));
+<<<<<<< Updated upstream
+=======
+  const filteredProducts = visibleProducts;
+>>>>>>> Stashed changes
 
   const persistDeletedProductId = useCallback((id: string) => {
     setDeletedProductIds((prev) => {
@@ -855,6 +859,15 @@ export default function StanDashboard({ displayName, handle, showName, onSignOut
             Edit Design
             <IconSparkle />
           </button>
+<<<<<<< Updated upstream
+=======
+          {/* <Link
+            href="/dashboard/store/product/new?kind=affiliate"
+            className="ml-auto mb-2 inline-flex items-center rounded-full border border-[#6b46ff]/30 bg-[#6b46ff]/10 px-3.5 py-1.5 text-xs font-semibold text-[#6b46ff] transition-all duration-200 hover:border-[#6b46ff] hover:bg-[#6b46ff] hover:text-white hover:shadow-[0_6px_16px_rgba(107,70,255,0.3)] sm:text-sm"
+          >
+            Refer and Earn
+          </Link> */}
+>>>>>>> Stashed changes
         </div>
 
         {activeTab === "store" ? (
@@ -897,20 +910,33 @@ export default function StanDashboard({ displayName, handle, showName, onSignOut
         ) : null}
 
         <div className="mt-6">
+<<<<<<< Updated upstream
           {activeTab === "store" ? (
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#b08d57]">Products</h2>
           ) : null}
+=======
+>>>>>>> Stashed changes
           {visibleProducts === null ? (
             <ul className="flex flex-col gap-3">
               <ProductListRowSkeleton />
             </ul>
           ) : visibleProducts.length === 0 ? (
             <p className="flex min-h-[80px] items-center justify-center rounded-2xl border border-dashed border-[#d8c7ab] bg-[#fbf7f0] px-4 text-center text-sm text-slate-500">
+<<<<<<< Updated upstream
               {activeTab === "landing" ? "No landing pages yet. Add one below." : "No products yet. Add one below."}
             </p>
           ) : (
             <ul className="flex flex-col gap-3">
               {visibleProducts.map((p) => (
+=======
+              {activeTab === "landing"
+                ? "No landing pages yet. Add one below."
+                : "No products yet. Add one below."}
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-3">
+              {(filteredProducts ?? []).map((p) => (
+>>>>>>> Stashed changes
                 <ProductListRow
                   key={p.id}
                   p={p}
