@@ -121,7 +121,8 @@ function IconAffiliate() {
 
 // Ordered so they interleave: left[0], right[0], left[1], right[1]... for 2-column grid
 const NEW = "/dashboard/store/product/new";
-const NEW_LANDING = "/dashboard/store/product/new?kind=landing";
+/** Landing-page editor lives at its own URL, kept separate from the store product editor. */
+const NEW_LANDING = "/dashboard/store/landing/create?kind=landing";
 
 const PRODUCT_CARDS: ProductTypeCard[] = [
   // {
@@ -216,78 +217,16 @@ const PRODUCT_CARDS: ProductTypeCard[] = [
   // },
 ];
 
+/** Landing pages: Product Hub only (same destination as store Product Hub). */
 const LANDING_CARDS: ProductTypeCard[] = [
   {
-    id: "lead-magnet",
-    title: "Email Collections",
-    description: "Collect Your Audience Info with a Lead Magnet",
-    href: NEW_LANDING,
-    iconBg: "#fff7ed",
-    iconColor: "#c2410c",
-    icon: <IconEmail />,
-  },
-  {
-    id: "waitlist",
+    id: "product-hub",
     title: "Product Hub",
     description: "PDFs, Guides, Templates, Exclusive Content, eBooks, etc.",
     href: NEW_LANDING,
     iconBg: "#ecfeff",
     iconColor: "#0e7490",
     icon: <IconDigital />,
-  },
-  {
-    id: "webinar-signup",
-    title: "Coaching Call",
-    description: "Book Discovery Calls, Paid Coaching",
-    href: NEW_LANDING,
-    iconBg: "#ede9fe",
-    iconColor: "#6d28d9",
-    icon: <IconCoaching />,
-  },
-  {
-    id: "sales-page",
-    title: "Custom Product",
-    description: "\"Ask Me Anything\" requests, Audits/Analyses, Video Reviews",
-    href: NEW_LANDING,
-    iconBg: "#dcfce7",
-    iconColor: "#047857",
-    icon: <IconCustom />,
-  },
-  {
-    id: "course-launch",
-    title: "eCourse",
-    description: "Create, Host, and Sell your Course with Stan",
-    href: NEW_LANDING,
-    iconBg: "#fef3c7",
-    iconColor: "#b45309",
-    icon: <IconCourse />,
-  },
-  {
-    id: "coaching-funnel",
-    title: "Recurring Membership",
-    description: "Charge Recurring Subscriptions",
-    href: NEW_LANDING,
-    iconBg: "#fce7f3",
-    iconColor: "#be185d",
-    icon: <IconMembership />,
-  },
-  {
-    id: "link-hub",
-    title: "Webinar",
-    description: "Host exclusive coaching sessions or online events with multiple customers",
-    href: NEW_LANDING,
-    iconBg: "#e0f2fe",
-    iconColor: "#0369a1",
-    icon: <IconWebinar />,
-  },
-  {
-    id: "custom-landing",
-    title: "Community",
-    description: "Host free or paid community",
-    href: NEW_LANDING,
-    iconBg: "#f3e8ff",
-    iconColor: "#7e22ce",
-    icon: <IconCommunity />,
   },
 ];
 
@@ -331,11 +270,11 @@ export default function ChooseProductTypeClient({
     >
       <div className="mt-8">
         <h2 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
-          {isLanding ? "Choose Landing Page type" : "Choose Product type"}
+          {isLanding ? "Product Hub" : "Choose Product type"}
         </h2>
         <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-slate-500">
           {isLanding
-            ? "Pick a landing page goal and start with a focused template designed for conversion."
+            ? "Sell guides, templates, and digital downloads from your landing page."
             : "Pick the format that best fits what you&apos;re selling - guides, courses, coaching, or more!"}
         </p>
         <div className="mt-4">
@@ -352,7 +291,11 @@ export default function ChooseProductTypeClient({
           </a>
         </div>
 
-        <ul className="mt-8 grid w-full grid-cols-2 gap-4">
+        <ul
+          className={`mt-8 grid w-full gap-4 ${
+            isLanding && cards.length === 1 ? "grid-cols-1 sm:max-w-md" : "grid-cols-2"
+          }`}
+        >
           {cards.map((c) => (
             <li key={c.id} className="flex">
               <Link

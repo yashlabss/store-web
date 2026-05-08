@@ -1206,7 +1206,29 @@ export default function AddProductClient({
   const displayName = user.full_name?.trim() || handle.charAt(0).toUpperCase() + handle.slice(1);
   const showName = handle.charAt(0).toUpperCase() + handle.slice(1);
 
-  const [activeTab, setActiveTab] = useState<TabKey>("thumbnail");
+  /**
+   * Landing-page flow:
+   *  - opened via `/dashboard/store/landing/create?kind=landing`
+   *  - editor reuses this component but the breadcrumb / back-link should
+   *    read as "Add Landing Page" so the user can clearly distinguish it
+   *    from the normal store product flow.
+   *  - landing pages don't expose the Thumbnail tab in the UI; the editor
+   *    starts on Checkout Page and only shows Checkout Page + Options.
+   */
+  const isLandingFlow =
+    (searchParams.get("kind") || "").toLowerCase() === "landing";
+  const editorBreadcrumbLabel = isLandingFlow
+    ? "Add Landing Page"
+    : "Add New Product";
+  const editorBackHref = isLandingFlow ? "/dashboard?tab=landing" : "/dashboard";
+  const editorBackLabel = isLandingFlow ? "Landing Pages" : "My Store";
+  /** Picks a sensible visible tab for landing flow (which has no Thumbnail tab). */
+  const safeTabForLanding = (tab: TabKey): TabKey =>
+    isLandingFlow && tab === "thumbnail" ? "checkout" : tab;
+
+  const [activeTab, setActiveTab] = useState<TabKey>(() =>
+    isLandingFlow ? "checkout" : "thumbnail",
+  );
   const [style, setStyle] = useState<StyleKey>("callout");
   const [title, setTitle] = useState("Get started with this amazing course");
   const [subtitle, setSubtitle] = useState("A 2-line course summary to close the sale. What will they learn?");
@@ -1758,16 +1780,16 @@ export default function AddProductClient({
       p.active_tab === "checkout"
         ? "webinar"
         : p.active_tab;
-    setActiveTab(
+    const restoredTab: TabKey =
       tab === "thumbnail" ||
-        tab === "checkout" ||
-        tab === "webinar" ||
-        tab === "course" ||
-        tab === "availability" ||
-        tab === "options"
+      tab === "checkout" ||
+      tab === "webinar" ||
+      tab === "course" ||
+      tab === "availability" ||
+      tab === "options"
         ? tab
-        : "thumbnail"
-    );
+        : "thumbnail";
+    setActiveTab(safeTabForLanding(restoredTab));
     setStyle(p.style === "button" || p.style === "callout" || p.style === "preview" ? p.style : "callout");
     setTitle(p.title || "");
     setSubtitle(p.subtitle || "");
@@ -2144,7 +2166,7 @@ export default function AddProductClient({
     setProductId(null);
     setPersistedProductType(null);
     setListingStatus("draft");
-    setActiveTab("thumbnail");
+    setActiveTab(safeTabForLanding("thumbnail"));
     setStyle("callout");
     setTitle(
       isCoaching
@@ -2309,6 +2331,7 @@ export default function AddProductClient({
       const tabForSave = activeTabOverride ?? activeTab;
       const flows = emailFlowIdsOverride ?? emailFlowIds;
       const webinarMode = (searchParams.get("kind") || "").toLowerCase() === "webinar";
+      const landingMode = (searchParams.get("kind") || "").toLowerCase() === "landing";
       const hasUploadBackedFile =
         Boolean(digitalFileDataUrl) || videoUploadDone || audioUploadDone;
       const safeDigitalFileName =
@@ -2330,7 +2353,12 @@ export default function AddProductClient({
       subtitle: subtitle.slice(0, SUB_MAX),
       button_text: buttonText.slice(0, BTN_MAX),
       price_numeric: price,
-      thumbnail_url: thumbnailDataUrl,
+      /**
+       * Landing flow has no Thumbnail tab — fall back to the Checkout image
+       * so the dashboard listing card always has an image to render.
+       */
+      thumbnail_url:
+        thumbnailDataUrl ?? (landingMode ? checkoutImageDataUrl : null),
       checkout_json: {
         note: checkoutNote,
         price,
@@ -2348,9 +2376,11 @@ export default function AddProductClient({
             : digitalFileDataUrl,
         custom_fields: customCheckoutFields,
         checkout_image_url: checkoutImageDataUrl,
+        ...(landingMode ? { location: "landing" } : {}),
       },
       options_json: {
         note: optionsNote,
+        ...(landingMode ? { location: "landing" } : {}),
         availability: {
           meeting_location: meetingLocation,
           time_zone: timeZone,
@@ -2758,10 +2788,16 @@ export default function AddProductClient({
     const ok = await saveToApi("draft");
     if (!ok) return;
     setSaveMsg("");
-    setToast("Draft saved. Taking you to My Store…");
+    const isLandingDraft =
+      (searchParams.get("kind") || "").toLowerCase() === "landing";
+    setToast(
+      isLandingDraft
+        ? "Draft saved. Taking you to Landing Pages…"
+        : "Draft saved. Taking you to My Store…",
+    );
     window.setTimeout(() => {
       setToast(null);
-      router.push("/dashboard");
+      router.push(isLandingDraft ? "/dashboard?tab=landing" : "/dashboard");
     }, TOAST_THEN_NAV_MS);
   };
 
@@ -2825,7 +2861,7 @@ export default function AddProductClient({
     if (publishHasErrors(e)) {
       setProductFormErrors((prev) => ({ ...prev, ...e }));
       setSaveMsg("Please fix the highlighted fields before continuing.");
-      if (thumbnailTabHasErrors(e)) setActiveTab("thumbnail");
+      if (thumbnailTabHasErrors(e)) setActiveTab(safeTabForLanding("thumbnail"));
       else setActiveTab("checkout");
       return;
     }
@@ -2838,7 +2874,7 @@ export default function AddProductClient({
     if (publishHasErrors(cc)) {
       setProductFormErrors((prev) => ({ ...prev, ...cc }));
       setSaveMsg("Please fix the highlighted fields before continuing.");
-      setActiveTab("thumbnail");
+      setActiveTab(safeTabForLanding("thumbnail"));
       return;
     }
     setProductFormErrors((prev) => ({
@@ -2899,7 +2935,7 @@ export default function AddProductClient({
     if (publishHasErrors(e)) {
       setProductFormErrors((prev) => ({ ...prev, ...e }));
       setSaveMsg("Please fix the highlighted fields before continuing.");
-      if (thumbnailTabHasErrors(e)) setActiveTab("thumbnail");
+      if (thumbnailTabHasErrors(e)) setActiveTab(safeTabForLanding("thumbnail"));
       else setActiveTab("checkout");
       return;
     }
@@ -2912,7 +2948,7 @@ export default function AddProductClient({
     if (publishHasErrors(cc)) {
       setProductFormErrors((prev) => ({ ...prev, ...cc }));
       setSaveMsg("Please fix the highlighted fields before continuing.");
-      setActiveTab("thumbnail");
+      setActiveTab(safeTabForLanding("thumbnail"));
       return;
     }
     setProductFormErrors((prev) => ({
@@ -2973,7 +3009,7 @@ export default function AddProductClient({
     if (publishHasErrors(e)) {
       setProductFormErrors((prev) => ({ ...prev, ...e }));
       setSaveMsg("Please fix the highlighted fields before continuing.");
-      if (thumbnailTabHasErrors(e)) setActiveTab("thumbnail");
+      if (thumbnailTabHasErrors(e)) setActiveTab(safeTabForLanding("thumbnail"));
       else setActiveTab("checkout");
       return;
     }
@@ -2986,7 +3022,7 @@ export default function AddProductClient({
     if (publishHasErrors(cc)) {
       setProductFormErrors((prev) => ({ ...prev, ...cc }));
       setSaveMsg("Please fix the highlighted fields before continuing.");
-      setActiveTab("thumbnail");
+      setActiveTab(safeTabForLanding("thumbnail"));
       return;
     }
     setProductFormErrors((prev) => ({
@@ -3026,80 +3062,6 @@ export default function AddProductClient({
     saveDraftBeforeNext("course");
   };
 
-  const goToWebinarTab = () => {
-    const e = validateListingAndCheckout(
-      thumbnailDataUrl,
-      title,
-      subtitle,
-      buttonText,
-      descriptionBody,
-      bottomTitle,
-      purchaseCta,
-      price,
-      discountEnabled,
-      discountPrice,
-      digitalDelivery,
-      digitalFileName,
-      digitalRedirectUrl,
-      customCheckoutFields,
-      !isDigitalProductFlow,
-    );
-    if (publishHasErrors(e)) {
-      setProductFormErrors((prev) => ({ ...prev, ...e }));
-      setSaveMsg("Please fix the highlighted fields before continuing.");
-      if (thumbnailTabHasErrors(e)) setActiveTab("thumbnail");
-      else setActiveTab("checkout");
-      return;
-    }
-    const cc = validateCommunityCopy(
-      isCommunityFlow,
-      title,
-      subtitle,
-      buttonText,
-    );
-    if (publishHasErrors(cc)) {
-      setProductFormErrors((prev) => ({ ...prev, ...cc }));
-      setSaveMsg("Please fix the highlighted fields before continuing.");
-      setActiveTab("thumbnail");
-      return;
-    }
-    setProductFormErrors((prev) => ({
-      ...prev,
-      listingImage: undefined,
-      title: undefined,
-      subtitle: undefined,
-      button: undefined,
-      descriptionBody: undefined,
-      bottomTitle: undefined,
-      purchaseCta: undefined,
-      price: undefined,
-      discountPrice: undefined,
-      digitalFile: undefined,
-      digitalRedirect: undefined,
-      customFields: undefined,
-    }));
-    setSaveMsg("");
-    const me = validateMembershipCheckout(
-      isMembershipFlow,
-      recurringCycle,
-      cancelSubscriptionAfterEnabled,
-      cancelSubscriptionAfter,
-    );
-    if (publishHasErrors(me)) {
-      setProductFormErrors((prev) => ({ ...prev, ...me }));
-      setSaveMsg("Please fix the highlighted fields before continuing.");
-      setActiveTab("checkout");
-      return;
-    }
-    setProductFormErrors((prev) => ({
-      ...prev,
-      membershipRecurring: undefined,
-      membershipCancelAfter: undefined,
-    }));
-    setActiveTab("webinar");
-    saveDraftBeforeNext("webinar");
-  };
-
   const goToOptionsFromAvailability = () => {
     const e = validateAvailabilityTab(
       meetingLocation,
@@ -3132,29 +3094,15 @@ export default function AddProductClient({
     saveDraftBeforeNext("options");
   };
 
-  const goNextFromCheckout = () => {
-    if (isWebinarFlow) {
-      goToWebinarTab();
-      return;
-    }
-    if (isCoachingCheckout) {
-      goToAvailabilityTab();
-      return;
-    }
-    if (isCourseCheckout && !isWebinarFlow && !isCoachingCheckout && !isCustomCheckout) {
-      goToCourseTab();
-      return;
-    }
-    goToOptionsTab();
-  };
-
   const validateDigitalThumbnailForNavigation = () => {
+    /** Landing-page flow has no Thumbnail tab in the UI, so skip thumbnail-only validation. */
+    if (isLandingFlow) return true;
     if (!isDigitalProductFlow && !isCourseCheckout && !isMembershipFlow && !isWebinarFlow) return true;
     const e = validateThumbnailTab(thumbnailDataUrl, title, subtitle, buttonText);
     if (thumbnailTabHasErrors(e)) {
       setProductFormErrors((prev) => ({ ...prev, ...e }));
       setSaveMsg("Please fix thumbnail fields before continuing.");
-      setActiveTab("thumbnail");
+      setActiveTab(safeTabForLanding("thumbnail"));
       return false;
     }
     setProductFormErrors((prev) => ({
@@ -3169,8 +3117,14 @@ export default function AddProductClient({
 
   const validateDigitalCheckoutForNavigation = () => {
     if (!isDigitalProductFlow && !isCourseCheckout && !isMembershipFlow && !isWebinarFlow) return true;
+    /**
+     * Landing flow uses the Checkout image as its listing thumbnail, and
+     * subtitle/button live on the (hidden) Thumbnail tab.
+     */
+    const effectiveThumbnail =
+      thumbnailDataUrl ?? (isLandingFlow ? checkoutImageDataUrl : null);
     const e = validateListingAndCheckout(
-      thumbnailDataUrl,
+      effectiveThumbnail,
       title,
       subtitle,
       buttonText,
@@ -3186,6 +3140,13 @@ export default function AddProductClient({
       customCheckoutFields,
       !isDigitalProductFlow,
     );
+    if (isLandingFlow) {
+      delete e.subtitle;
+      delete e.button;
+      if (e.listingImage) {
+        e.listingImage = "Please choose a checkout image.";
+      }
+    }
     if (isMembershipFlow) {
       const me = validateMembershipCheckout(
         isMembershipFlow,
@@ -3198,7 +3159,7 @@ export default function AddProductClient({
     if (publishHasErrors(e)) {
       setProductFormErrors((prev) => ({ ...prev, ...e }));
       setSaveMsg("Please fix checkout fields before continuing.");
-      if (thumbnailTabHasErrors(e)) setActiveTab("thumbnail");
+      if (thumbnailTabHasErrors(e)) setActiveTab(safeTabForLanding("thumbnail"));
       else setActiveTab("checkout");
       return false;
     }
@@ -3536,10 +3497,18 @@ export default function AddProductClient({
       }
       return;
     }
+    /**
+     * Landing-page flow has no Thumbnail tab in the UI — sellers only manage
+     * the Checkout image on the visible Checkout Page step. Treat that image
+     * as the listing thumbnail for validation, so they aren't blocked by a
+     * field they can't see.
+     */
+    const effectiveThumbnail =
+      thumbnailDataUrl ?? (isLandingFlow ? checkoutImageDataUrl : null);
     const e = isAffiliateFlow
-      ? validateAffiliatePage(thumbnailDataUrl, title, affiliateUrl)
+      ? validateAffiliatePage(effectiveThumbnail, title, affiliateUrl)
       : validatePublishTab(
-          thumbnailDataUrl,
+          effectiveThumbnail,
           title,
           subtitle,
           buttonText,
@@ -3557,6 +3526,14 @@ export default function AddProductClient({
           confirmationBody,
           !isDigitalProductFlow,
         );
+    if (isLandingFlow) {
+      /** Subtitle / button text live on the (hidden) Thumbnail tab — silence errors for fields the seller can't edit here. */
+      delete e.subtitle;
+      delete e.button;
+      if (e.listingImage) {
+        e.listingImage = "Please choose a checkout image.";
+      }
+    }
     if (isCoachingCheckout) {
       const ae = validateAvailabilityTab(
         meetingLocation,
@@ -3624,10 +3601,10 @@ export default function AddProductClient({
     if (publishHasErrors(e)) {
       setProductFormErrors(e);
       setSaveMsg("Please fix the highlighted fields before publishing.");
-      if (thumbnailTabHasErrors(e)) setActiveTab("thumbnail");
+      if (thumbnailTabHasErrors(e)) setActiveTab(safeTabForLanding("thumbnail"));
       else if (e.course) setActiveTab("course");
-      else if (e.urlMediaLink) setActiveTab("thumbnail");
-      else if (e.affiliateUrl) setActiveTab("thumbnail");
+      else if (e.urlMediaLink) setActiveTab(safeTabForLanding("thumbnail"));
+      else if (e.affiliateUrl) setActiveTab(safeTabForLanding("thumbnail"));
       else if (e.webinarSlots || e.webinarSettings) setActiveTab("webinar");
       else if (e.membershipRecurring || e.membershipCancelAfter) setActiveTab("checkout");
       else if (e.availability) setActiveTab("availability");
@@ -3640,10 +3617,16 @@ export default function AddProductClient({
     const ok = await saveToApi("published");
     if (!ok) return;
     setSaveMsg("");
-    setToast("Published! Your product is live. Taking you to My Store…");
+    const isLandingPublish =
+      (searchParams.get("kind") || "").toLowerCase() === "landing";
+    setToast(
+      isLandingPublish
+        ? "Published! Your landing page is live. Taking you to Landing Pages…"
+        : "Published! Your product is live. Taking you to My Store…",
+    );
     window.setTimeout(() => {
       setToast(null);
-      router.push("/dashboard");
+      router.push(isLandingPublish ? "/dashboard?tab=landing" : "/dashboard");
     }, TOAST_THEN_NAV_MS);
   };
 
@@ -3832,18 +3815,21 @@ export default function AddProductClient({
       topLeft={
         <div className="flex flex-wrap items-center gap-2">
           <Link
-            href="/dashboard"
+            href={editorBackHref}
             className="flex items-center gap-1 text-slate-500 hover:text-slate-800"
-            aria-label="Back to My Store"
+            aria-label={`Back to ${editorBackLabel}`}
           >
             <IconChevronLeft />
           </Link>
           <nav className="flex flex-wrap items-center gap-2 text-[15px]">
-            <Link href="/dashboard" className="font-medium text-slate-500 hover:text-slate-800">
-              My Store
+            <Link
+              href={editorBackHref}
+              className="font-medium text-slate-500 hover:text-slate-800"
+            >
+              {editorBackLabel}
             </Link>
             <span className="text-slate-400">/</span>
-            <span className="font-bold text-slate-900">Add New Product</span>
+            <span className="font-bold text-slate-900">{editorBreadcrumbLabel}</span>
           </nav>
         </div>
       }
@@ -4018,19 +4004,22 @@ export default function AddProductClient({
 
       {!isUrlMediaFlow && !isAffiliateFlow ? (
       <div className="mt-6 flex flex-wrap" style={{ gap: "7px" }}>
-        <button
-          type="button"
-          className={tabClass("thumbnail")}
-          style={
-            activeTab === "thumbnail"
-              ? { backgroundColor: PURPLE, color: "#fff" }
-              : undefined
-          }
-          onClick={() => setActiveTab("thumbnail")}
-        >
-          <IconStoreTab className={activeTab === "thumbnail" ? "text-white" : "text-[#6b46ff]"} />
-          Thumbnail
-        </button>
+        {/* Landing-page flow has no Thumbnail tab — only Checkout Page + Options. */}
+        {!isLandingFlow ? (
+          <button
+            type="button"
+            className={tabClass("thumbnail")}
+            style={
+              activeTab === "thumbnail"
+                ? { backgroundColor: PURPLE, color: "#fff" }
+                : undefined
+            }
+            onClick={() => setActiveTab(safeTabForLanding("thumbnail"))}
+          >
+            <IconStoreTab className={activeTab === "thumbnail" ? "text-white" : "text-[#6b46ff]"} />
+            Thumbnail
+          </button>
+        ) : null}
         <button
           type="button"
           className={tabClass("checkout")}
@@ -6845,16 +6834,12 @@ export default function AddProductClient({
           {activeTab === "checkout" ? (
             <button
               type="button"
-                disabled={isWebinarFlow ? saving : publishDisabled}
-              onClick={isWebinarFlow ? goToWebinarTab : () => void handlePublish()}
-              className={
-                isWebinarFlow
-                  ? "rounded-full border-2 border-slate-200 bg-white px-6 py-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50 disabled:opacity-50"
-                  : "inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
-              }
-              style={isWebinarFlow ? undefined : { backgroundColor: PURPLE }}
+              disabled={publishDisabled}
+              onClick={() => void handlePublish()}
+              className="inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white disabled:opacity-50"
+              style={{ backgroundColor: PURPLE }}
             >
-              Next
+              Publish
             </button>
           ) : null}
           {activeTab === "course" ? (

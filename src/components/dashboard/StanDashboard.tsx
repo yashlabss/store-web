@@ -123,6 +123,10 @@ function getProductEditHref(p: ProductRow): string {
   if (options.collect_emails === true || hasCustomFieldsArray || looksLikeCollectEmailsButton || looksLikeCollectEmailsSubtitle) {
     return `/dashboard/store/product/emails?id=${encodeURIComponent(p.id)}`;
   }
+  /** Landing-page items live on their own editor URL so the breadcrumb / back-link stay scoped to Landing Pages. */
+  if (isLandingProduct(p)) {
+    return `/dashboard/store/landing/create?kind=landing&id=${encodeURIComponent(p.id)}`;
+  }
   return `/dashboard/store/product/new?id=${encodeURIComponent(p.id)}`;
 }
 
@@ -260,19 +264,24 @@ function ProductListRowSkeleton() {
 function ProductListRow({
   p,
   handle,
+  listTab,
   onUnpublish,
   onDuplicate,
   onDelete,
   onMakeLanding,
+  onMakeStore,
   onNotify,
   onError,
 }: {
   p: ProductRow;
   handle: string;
+  /** Which dashboard tab this row is listed under — drives the placement-toggle label + action. */
+  listTab: "store" | "landing";
   onUnpublish: (id: string) => Promise<void>;
   onDuplicate: (id: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onMakeLanding: (id: string) => Promise<void>;
+  onMakeStore: (id: string) => Promise<void>;
   onNotify: (msg: string) => void;
   onError: (msg: string) => void;
 }) {
@@ -480,10 +489,14 @@ function ProductListRow({
               <button
                 type="button"
                 disabled={busyAction !== null}
-                onClick={() => void runAction("landing", () => onMakeLanding(p.id))}
+                onClick={() =>
+                  void runAction(listTab === "landing" ? "store" : "landing", () =>
+                    listTab === "landing" ? onMakeStore(p.id) : onMakeLanding(p.id),
+                  )
+                }
                 className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
               >
-                Make Landing Page
+                {listTab === "landing" ? "Make Store Page" : "Make Landing Page"}
               </button>
               <button
                 type="button"
@@ -833,6 +846,76 @@ export default function StanDashboard({ displayName, handle, showName, onSignOut
     }
   }, [products]);
 
+  const makeStorePage = useCallback(
+    async (id: string) => {
+      try {
+        const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+        if (!token) throw new Error("Please log in again.");
+        const fullRes = await fetch(`${API_PRODUCTS_BASE}/${id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const fullData = await fullRes.json().catch(() => ({}));
+        if (!fullRes.ok || !(fullData as { product?: ProductRow }).product) {
+          throw new Error((fullData as { message?: string }).message || "Could not load product.");
+        }
+        const fullProduct = (fullData as {
+          product: ProductRow & { product_type?: string };
+        }).product;
+
+        const stripLandingMarkers = (raw: unknown) => {
+          const next = {
+            ...(raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {}),
+          };
+          delete next.location;
+          const data = next.data;
+          if (data && typeof data === "object") {
+            const d = { ...(data as Record<string, unknown>) };
+            delete d.source_product_id;
+            if (Object.keys(d).length === 0) delete next.data;
+            else next.data = d;
+          }
+          return next;
+        };
+
+        const style =
+          fullProduct.style === "button" ||
+          fullProduct.style === "preview" ||
+          fullProduct.style === "callout"
+            ? fullProduct.style
+            : "callout";
+
+        await runProductAction(
+          () =>
+            fetch(`${API_PRODUCTS_BASE}/draft`, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                id: fullProduct.id,
+                status: fullProduct.status === "published" ? "published" : "draft",
+                active_tab: fullProduct.active_tab || "checkout",
+                style,
+                title: fullProduct.title || "",
+                subtitle: fullProduct.subtitle || "",
+                button_text: fullProduct.button_text || "",
+                price_numeric: Number(fullProduct.price_numeric) || 0,
+                thumbnail_url: fullProduct.thumbnail_url || null,
+                checkout_json: stripLandingMarkers(fullProduct.checkout_json),
+                options_json: stripLandingMarkers(fullProduct.options_json),
+                ...(fullProduct.product_type ? { product_type: fullProduct.product_type } : {}),
+              }),
+            }),
+          "Moved to Store.",
+        );
+      } catch (e) {
+        setListError(networkErrorMessage(e));
+      }
+    },
+    [runProductAction],
+  );
+
   useEffect(() => {
     const onVis = () => {
       if (document.visibilityState === "visible") void loadProducts();
@@ -944,7 +1027,6 @@ export default function StanDashboard({ displayName, handle, showName, onSignOut
           ) : visibleProducts.length === 0 ? (
             <p className="flex min-h-[80px] items-center justify-center rounded-2xl border border-dashed border-[#d8c7ab] bg-[#fbf7f0] px-4 text-center text-sm text-slate-500">
               {activeTab === "landing" ? "No landing pages yet. Add one below." : "No products yet. Add one below."}
-              {activeTab === "landing" ? "No landing pages yet. Add one below." : "No products yet. Add one below."}
             </p>
           ) : (
             <ul className="flex flex-col gap-3">
@@ -953,10 +1035,12 @@ export default function StanDashboard({ displayName, handle, showName, onSignOut
                   key={p.id}
                   p={p}
                   handle={handle}
+                  listTab={activeTab}
                   onUnpublish={unpublishProduct}
                   onDuplicate={duplicateProduct}
                   onDelete={deleteProduct}
                   onMakeLanding={makeLandingPage}
+                  onMakeStore={makeStorePage}
                   onNotify={(msg) => {
                     setActionMsg(msg);
                     setListError("");
