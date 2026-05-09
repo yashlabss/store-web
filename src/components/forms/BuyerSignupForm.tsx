@@ -160,6 +160,7 @@ export default function BuyerSignupForm() {
               value={form.full_name}
               onChange={(e) => setField("full_name", e.target.value)}
               autoComplete="name"
+              suppressHydrationWarning
             />
             {errors.full_name ? (
               <p className="mt-1 text-xs font-medium text-rose-600">{errors.full_name}</p>
@@ -173,6 +174,7 @@ export default function BuyerSignupForm() {
               value={form.email}
               onChange={(e) => setField("email", e.target.value)}
               autoComplete="email"
+              suppressHydrationWarning
             />
             {errors.email ? (
               <p className="mt-1 text-xs font-medium text-rose-600">{errors.email}</p>
@@ -185,6 +187,7 @@ export default function BuyerSignupForm() {
                 onChange={(e) => setField("country_code", e.target.value)}
                 className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none focus:border-indigo-400 sm:w-[190px]"
                 aria-label="Country code"
+                suppressHydrationWarning
               >
                 {COUNTRY_CODES.map((c) => (
                   <option key={c.value} value={c.value}>
@@ -200,6 +203,7 @@ export default function BuyerSignupForm() {
                 onChange={(e) => setField("phone", e.target.value.replace(/[^\d]/g, ""))}
                 autoComplete="tel-national"
                 inputMode="numeric"
+                suppressHydrationWarning
               />
             </div>
             {errors.phone ? (
@@ -213,6 +217,7 @@ export default function BuyerSignupForm() {
               value={form.address}
               onChange={(e) => setField("address", e.target.value)}
               autoComplete="street-address"
+              suppressHydrationWarning
             />
             {errors.address ? (
               <p className="mt-1 text-xs font-medium text-rose-600">{errors.address}</p>
@@ -227,12 +232,14 @@ export default function BuyerSignupForm() {
                 value={form.password}
                 onChange={(e) => setField("password", e.target.value)}
                 autoComplete="new-password"
+                suppressHydrationWarning
               />
               <button
                 type="button"
                 onClick={() => setShowPassword((prev) => !prev)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100"
                 aria-label={showPassword ? "Hide password" : "Show password"}
+                suppressHydrationWarning
               >
                 {showPassword ? "Hide" : "Show"}
               </button>
@@ -250,7 +257,12 @@ export default function BuyerSignupForm() {
               {submitError}
             </p>
           ) : null}
-          <button type="submit" disabled={busy} className="w-full rounded-full bg-indigo-600 px-5 py-3 text-sm font-semibold text-white disabled:bg-slate-400">
+          <button
+            type="submit"
+            disabled={busy}
+            className="w-full rounded-full bg-indigo-600 px-5 py-3 text-sm font-semibold text-white disabled:bg-slate-400"
+            suppressHydrationWarning
+          >
             {busy ? "Creating..." : "Create account"}
           </button>
         </form>
