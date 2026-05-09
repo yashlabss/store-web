@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Store Web",
+  title: process.env.NEXT_PUBLIC_APP_NAME || "Mintlin",
   description: "Creator commerce platform",
   manifest: "/manifest.webmanifest",
 };
