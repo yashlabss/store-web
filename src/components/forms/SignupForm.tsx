@@ -643,7 +643,7 @@ export default function SignupForm() {
           </button>
         </form>
 
-        <p className="mt-[29px] text-center text-[13.5px] leading-relaxed text-slate-500">
+        {/* <p className="mt-[29px] text-center text-[13.5px] leading-relaxed text-slate-500">
           By continuing, you agree to our{" "}
           <a href="#" className="font-medium text-blue-600 underline">
             Terms of Service
@@ -653,7 +653,7 @@ export default function SignupForm() {
             Privacy Policy
           </a>
           .
-        </p>
+        </p> */}
 
         <p className="mt-[21px] text-center text-[15px] text-slate-600">
           Have an account?{" "}

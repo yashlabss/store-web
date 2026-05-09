@@ -13,7 +13,7 @@ export default function HomePage() {
           Store
         </h1>
         <p className="mt-3 text-slate-600">
-          Next.js frontend, Express API, and Supabase (Postgres) running locally.
+        Build your brand, sell your expertise, and grow your audience.
         </p>
         <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
           <Link
