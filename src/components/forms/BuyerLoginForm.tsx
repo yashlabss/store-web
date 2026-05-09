@@ -54,6 +54,7 @@ export default function BuyerLoginForm() {
           Login with buyer email/password before purchase or download.
         </p>
         <form className="mt-6 space-y-4" onSubmit={onSubmit} noValidate>
+          {/* suppressHydrationWarning: password managers inject fdprocessedid etc. before hydrate */}
           <input
             type="email"
             autoComplete="email"
@@ -61,6 +62,7 @@ export default function BuyerLoginForm() {
             onChange={(e) => setEmail(e.target.value)}
             placeholder="Email"
             className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-indigo-400"
+            suppressHydrationWarning
           />
           <input
             type="password"
@@ -69,6 +71,7 @@ export default function BuyerLoginForm() {
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Password"
             className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-indigo-400"
+            suppressHydrationWarning
           />
           {error ? (
             <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
@@ -79,6 +82,7 @@ export default function BuyerLoginForm() {
             type="submit"
             disabled={busy}
             className="w-full rounded-full bg-indigo-600 px-5 py-3 text-sm font-semibold text-white disabled:bg-slate-400"
+            suppressHydrationWarning
           >
             {busy ? "Signing in..." : "Sign in"}
           </button>
