@@ -36,6 +36,8 @@ type ProductRow = {
   active_tab?: string;
   style?: string;
   updated_at: string;
+  /** Set for `landing_pages` rows — used to resolve thumbnails from the source store product. */
+  data?: Record<string, unknown>;
 };
 
 const DELETED_PRODUCT_IDS_KEY = "stan_deleted_product_ids";
@@ -81,20 +83,44 @@ function normalizeLandingRows(payload: unknown): ProductRow[] {
       const item = raw as Record<string, unknown>;
       const id = typeof item.id === "string" ? item.id : "";
       if (!id) return null;
+      const dataObj =
+        item.data && typeof item.data === "object" && !Array.isArray(item.data)
+          ? (item.data as Record<string, unknown>)
+          : {};
+      const subtitle =
+        typeof item.subtitle === "string"
+          ? item.subtitle
+          : typeof dataObj.subtitle === "string"
+            ? dataObj.subtitle
+            : "";
+      const button_text =
+        typeof item.button_text === "string"
+          ? item.button_text
+          : typeof dataObj.button_text === "string"
+            ? dataObj.button_text
+            : "View";
+      const price_numeric =
+        Number(item.price_numeric) || Number(dataObj.price_numeric) || 0;
+      const thumbnail_url =
+        typeof item.thumbnail_url === "string"
+          ? item.thumbnail_url
+          : typeof item.image_url === "string"
+            ? item.image_url
+            : typeof dataObj.thumbnail_url === "string"
+              ? dataObj.thumbnail_url
+              : typeof dataObj.image_url === "string"
+                ? dataObj.image_url
+                : null;
       return {
         id,
         status: typeof item.status === "string" ? item.status : "draft",
         location: "landing",
         title: typeof item.title === "string" ? item.title : "Untitled Landing Page",
-        subtitle: typeof item.subtitle === "string" ? item.subtitle : "",
-        button_text: typeof item.button_text === "string" ? item.button_text : "View",
-        price_numeric: Number(item.price_numeric) || 0,
-        thumbnail_url:
-          typeof item.thumbnail_url === "string"
-            ? item.thumbnail_url
-            : typeof item.image_url === "string"
-              ? item.image_url
-              : null,
+        subtitle,
+        button_text,
+        price_numeric,
+        thumbnail_url,
+        data: Object.keys(dataObj).length ? dataObj : undefined,
         checkout_json:
           item.checkout_json && typeof item.checkout_json === "object"
             ? (item.checkout_json as Record<string, unknown>)
@@ -172,6 +198,48 @@ function getProductPreviewImageUrl(p: ProductRow): string | null {
     return firstImageFromDescriptionHtml(checkout.description_body);
   }
   return null;
+}
+
+/** Original store product id when this row is a `landing_pages` record or a product created from "Make Landing Page". */
+function getSourceProductIdForLandingRow(p: ProductRow): string | null {
+  const fromData = p.data?.source_product_id;
+  if (typeof fromData === "string" && fromData.trim()) return fromData.trim();
+  const cjData = (p.checkout_json || {}) as { data?: unknown };
+  const co = cjData.data;
+  if (co && typeof co === "object" && "source_product_id" in co) {
+    const v = (co as { source_product_id?: unknown }).source_product_id;
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  const ojData = (p.options_json || {}) as { data?: unknown };
+  const oo = ojData.data;
+  if (oo && typeof oo === "object" && "source_product_id" in oo) {
+    const v = (oo as { source_product_id?: unknown }).source_product_id;
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return null;
+}
+
+/** If a landing-page row has no image but was created from a store product, reuse that product's preview URL. */
+function enrichLandingRowThumbnailFromSourceProduct(
+  p: ProductRow,
+  storeProducts: ProductRow[],
+): ProductRow {
+  if (!isLandingProduct(p) || getProductPreviewImageUrl(p)) return p;
+  let sid = "";
+  if (typeof p.data?.source_product_id === "string") sid = p.data.source_product_id;
+  else {
+    const optData = p.options_json?.data;
+    if (optData && typeof optData === "object" && "source_product_id" in optData) {
+      const v = (optData as { source_product_id?: unknown }).source_product_id;
+      if (typeof v === "string") sid = v;
+    }
+  }
+  if (!sid) return p;
+  const storeP = storeProducts.find((sp) => sp.id === sid);
+  if (!storeP) return p;
+  const url = getProductPreviewImageUrl(storeP);
+  if (!url) return p;
+  return { ...p, thumbnail_url: url };
 }
 
 function AvatarLarge({ label }: { label: string }) {
@@ -281,7 +349,7 @@ function ProductListRow({
   onDuplicate: (id: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onMakeLanding: (id: string) => Promise<void>;
-  onMakeStore: (id: string) => Promise<void>;
+  onMakeStore: (p: ProductRow) => Promise<void>;
   onNotify: (msg: string) => void;
   onError: (msg: string) => void;
 }) {
@@ -491,7 +559,7 @@ function ProductListRow({
                 disabled={busyAction !== null}
                 onClick={() =>
                   void runAction(listTab === "landing" ? "store" : "landing", () =>
-                    listTab === "landing" ? onMakeStore(p.id) : onMakeLanding(p.id),
+                    listTab === "landing" ? onMakeStore(p) : onMakeLanding(p.id),
                   )
                 }
                 className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
@@ -569,8 +637,9 @@ export default function StanDashboard({ displayName, handle, showName, onSignOut
       }
       const mergedRows = [...rows, ...landingRows];
       const dedupedRows = Array.from(new Map(mergedRows.map((row) => [row.id, row])).values());
+      const enrichedRows = dedupedRows.map((p) => enrichLandingRowThumbnailFromSourceProduct(p, rows));
       const hiddenIds = new Set(readDeletedProductIds());
-      setProducts(dedupedRows.filter((p) => !isDeletedProduct(p) && !hiddenIds.has(p.id)));
+      setProducts(enrichedRows.filter((p) => !isDeletedProduct(p) && !hiddenIds.has(p.id)));
     } catch (e) {
       setListError(networkErrorMessage(e));
       setProducts([]);
@@ -783,7 +852,15 @@ export default function StanDashboard({ displayName, handle, showName, onSignOut
     try {
       const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
       if (!token) throw new Error("Please log in again.");
-      const source = (products || []).find((p) => p.id === id);
+      const fullRes = await fetch(`${API_PRODUCTS_BASE}/${encodeURIComponent(id)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const fullData = await fullRes.json().catch(() => ({}));
+      if (!fullRes.ok || !(fullData as { product?: ProductRow }).product) {
+        throw new Error((fullData as { message?: string }).message || "Could not load product.");
+      }
+      const source = (fullData as { product: ProductRow }).product;
+      const previewImageUrl = getProductPreviewImageUrl(source);
       const createViaLandingApi = async () => {
         const res = await fetch("/api/landing-pages", {
           method: "POST",
@@ -792,10 +869,16 @@ export default function StanDashboard({ displayName, handle, showName, onSignOut
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            title: `${source?.title || "Product"} Landing Page`,
+            title: `${source.title || "Product"} Landing Page`,
             location: "landing",
-            status: "draft",
-            data: { source_product_id: id },
+            status: "published",
+            data: {
+              source_product_id: id,
+              thumbnail_url: previewImageUrl,
+              price_numeric: Number(source.price_numeric) || 0,
+              subtitle: source.subtitle || "",
+              button_text: source.button_text || "Learn More",
+            },
           }),
         });
         const data = await res.json().catch(() => ({}));
@@ -809,21 +892,21 @@ export default function StanDashboard({ displayName, handle, showName, onSignOut
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            status: "draft",
+            status: "published",
             active_tab: "thumbnail",
-            style: source?.style || "callout",
-            title: `${source?.title || "Product"} Landing Page`,
-            subtitle: source?.subtitle || "",
-            button_text: source?.button_text || "Learn More",
-            price_numeric: Number(source?.price_numeric) || 0,
-            thumbnail_url: source?.thumbnail_url || null,
+            style: source.style || "callout",
+            title: `${source.title || "Product"} Landing Page`,
+            subtitle: source.subtitle || "",
+            button_text: source.button_text || "Learn More",
+            price_numeric: Number(source.price_numeric) || 0,
+            thumbnail_url: previewImageUrl,
             checkout_json: {
-              ...((source?.checkout_json || {}) as Record<string, unknown>),
+              ...((source.checkout_json || {}) as Record<string, unknown>),
               location: "landing",
               data: { source_product_id: id },
             },
             options_json: {
-              ...((source?.options_json || {}) as Record<string, unknown>),
+              ...((source.options_json || {}) as Record<string, unknown>),
               location: "landing",
               data: { source_product_id: id },
             },
@@ -844,23 +927,45 @@ export default function StanDashboard({ displayName, handle, showName, onSignOut
     } catch (e) {
       setListError(networkErrorMessage(e));
     }
-  }, [products]);
+  }, []);
 
   const makeStorePage = useCallback(
-    async (id: string) => {
+    async (row: ProductRow) => {
       try {
         const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
         if (!token) throw new Error("Please log in again.");
-        const fullRes = await fetch(`${API_PRODUCTS_BASE}/${id}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const fullData = await fullRes.json().catch(() => ({}));
-        if (!fullRes.ok || !(fullData as { product?: ProductRow }).product) {
-          throw new Error((fullData as { message?: string }).message || "Could not load product.");
+
+        const loadProduct = async (productId: string) => {
+          const fullRes = await fetch(`${API_PRODUCTS_BASE}/${encodeURIComponent(productId)}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const fullData = await fullRes.json().catch(() => ({}));
+          if (!fullRes.ok || !(fullData as { product?: ProductRow }).product) {
+            return {
+              ok: false as const,
+              message: (fullData as { message?: string }).message || "Could not load product.",
+            };
+          }
+          return {
+            ok: true as const,
+            product: (fullData as { product: ProductRow & { product_type?: string } }).product,
+          };
+        };
+
+        let loaded = await loadProduct(row.id);
+        if (!loaded.ok) {
+          const sourceId = getSourceProductIdForLandingRow(row);
+          if (sourceId && sourceId !== row.id) {
+            loaded = await loadProduct(sourceId);
+          }
         }
-        const fullProduct = (fullData as {
-          product: ProductRow & { product_type?: string };
-        }).product;
+        if (!loaded.ok) {
+          throw new Error(loaded.message);
+        }
+        const fullProduct = loaded.product;
+
+        /** `landing_pages.id` when the list row is not a products row — remove after moving so it does not stay under Landing Pages. */
+        const landingPageRowIdToRemove = fullProduct.id !== row.id ? row.id : null;
 
         const stripLandingMarkers = (raw: unknown) => {
           const next = {
@@ -884,9 +989,10 @@ export default function StanDashboard({ displayName, handle, showName, onSignOut
             ? fullProduct.style
             : "callout";
 
+        let landingPageDeleteFailed = false;
         await runProductAction(
-          () =>
-            fetch(`${API_PRODUCTS_BASE}/draft`, {
+          async () => {
+            const resDraft = await fetch(`${API_PRODUCTS_BASE}/draft`, {
               method: "POST",
               headers: {
                 Authorization: `Bearer ${token}`,
@@ -906,9 +1012,25 @@ export default function StanDashboard({ displayName, handle, showName, onSignOut
                 options_json: stripLandingMarkers(fullProduct.options_json),
                 ...(fullProduct.product_type ? { product_type: fullProduct.product_type } : {}),
               }),
-            }),
+            });
+            if (!resDraft.ok) return resDraft;
+            if (landingPageRowIdToRemove) {
+              const resDel = await fetch(
+                `/api/landing-pages/${encodeURIComponent(landingPageRowIdToRemove)}`,
+                {
+                  method: "DELETE",
+                  headers: { Authorization: `Bearer ${token}` },
+                },
+              );
+              if (!resDel.ok) landingPageDeleteFailed = true;
+            }
+            return resDraft;
+          },
           "Moved to Store.",
         );
+        if (landingPageDeleteFailed) {
+          setListError("Moved to Store, but the old landing page entry could not be removed. Refresh the page.");
+        }
       } catch (e) {
         setListError(networkErrorMessage(e));
       }
