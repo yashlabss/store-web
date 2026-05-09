@@ -5,24 +5,19 @@ import { useCallback, useState } from "react";
 import {
   IconArrowUpRight,
   IconBag,
-  IconChart,
   IconClose,
   IconCopy,
   IconGear,
-  IconHeart,
   IconHome,
   IconMenu,
-  IconPlane,
-  IconPlusSm,
   IconSparkle,
   IconStoreTab,
-  IconWallet,
 } from "./dashboardIcons";
 
 const PURPLE = "#1f2a44";
 export const SIDEBAR_BG = "#f3f0ea";
 
-export type NavContext = "home" | "store-home" | "add-product" | "income";
+export type NavContext = "home" | "store-home" | "add-product" | "income" | "settings";
 
 type NavItem = {
   id: string;
@@ -36,7 +31,6 @@ type NavItem = {
 function navItems(ctx: NavContext): NavItem[] {
   const homeActive = ctx === "home";
   const storeActive = ctx === "store-home" || ctx === "add-product";
-  const incomeActive = ctx === "income";
   return [
     { id: "home", label: "Home", Icon: IconHome, href: "/dashboard/home", active: homeActive, useLink: true },
     {
@@ -47,18 +41,6 @@ function navItems(ctx: NavContext): NavItem[] {
       active: storeActive,
       useLink: true,
     },
-    // {
-    //   id: "income",
-    //   label: "Income",
-    //   Icon: IconWallet,
-    //   href: "/dashboard/income",
-    //   active: incomeActive,
-    //   useLink: true,
-    // },
-    // { id: "analytics", label: "Analytics", Icon: IconChart, href: "#" },
-    // { id: "customers", label: "Customers", Icon: IconHeart, href: "#" },
-    // { id: "autodm", label: "AutoDM", Icon: IconPlane, href: "#" },
-    // { id: "more", label: "More", Icon: IconPlusSm, href: "#" },
   ];
 }
 
@@ -156,14 +138,18 @@ export default function DashboardShell({
       </nav>
 
       <div className="mt-auto flex flex-col gap-1 border-t border-[#e7dcc9]/80 pt-4">
-        <a
-          href="#"
-          className="flex items-center gap-3 rounded-2xl px-3 py-2.5 text-[15px] font-medium text-slate-600 hover:bg-white/70"
+        <Link
+          href="/dashboard/settings"
+          className={`flex items-center gap-3 rounded-2xl px-3 py-2.5 text-[15px] font-medium transition-colors ${
+            navContext === "settings"
+              ? "bg-white text-[#1f2a44] shadow-sm ring-1 ring-[#e7dcc9]"
+              : "text-slate-600 hover:bg-white/70 hover:text-[#1f2a44]"
+          }`}
           onClick={closeMobileNav}
         >
-          <IconGear className="shrink-0 text-[#b08d57]" />
+          <IconGear className={`shrink-0 ${navContext === "settings" ? "text-[#1f2a44]" : "text-[#b08d57]"}`} />
           Settings
-        </a>
+        </Link>
         <div className="flex items-center gap-3 rounded-2xl px-3 py-2">
           <div
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-[#5b8ac4]"
