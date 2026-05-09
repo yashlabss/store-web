@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { API_PUBLIC_BASE } from "../../../lib/api";
@@ -16,7 +17,7 @@ function formatClock(secondsRaw: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-export default function VideoPreviewPage() {
+function VideoPreviewPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = String(searchParams.get("token") || searchParams.get("t") || "").trim();
@@ -323,5 +324,13 @@ export default function VideoPreviewPage() {
         </p>
       </div>
     </main>
+  );
+}
+
+export default function VideoPreviewPage() {
+  return (
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-slate-950 text-white">Loading video...</div>}>
+      <VideoPreviewPageInner />
+    </Suspense>
   );
 }

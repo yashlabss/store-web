@@ -1,11 +1,12 @@
 "use client";
 
+import { Suspense } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { API_PUBLIC_BASE } from "../../../../lib/api";
 
-export default function WebinarReviewPage() {
+function WebinarReviewPageInner() {
   const params = useParams();
   const searchParams = useSearchParams();
   const username = typeof params?.username === "string" ? params.username : "";
@@ -109,6 +110,14 @@ export default function WebinarReviewPage() {
         </Link>
       </div>
     </main>
+  );
+}
+
+export default function WebinarReviewPage() {
+  return (
+    <Suspense fallback={<main className="mx-auto min-h-screen max-w-xl px-4 py-16 text-slate-600">Loading feedback form...</main>}>
+      <WebinarReviewPageInner />
+    </Suspense>
   );
 }
 

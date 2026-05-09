@@ -81,9 +81,21 @@ export default function DashboardShell({
 }: DashboardShellProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const appHeading = (process.env.NEXT_PUBLIC_APP_NAME || "Mintlin").trim() || "Mintlin";
 
-  const storeUrl = `mintlin.com/${handle}`;
-  const fullUrl = `https://${storeUrl}`;
+  const isDev = process.env.NODE_ENV === "development";
+  const configuredStoreBase = (process.env.NEXT_PUBLIC_STORE_BASE_URL || "").trim();
+  const normalizedStoreBase = configuredStoreBase
+    ? configuredStoreBase.replace(/\/+$/, "")
+    : isDev
+      ? "http://localhost:3000"
+      : "https://mintlin.com";
+  const configuredStoreHost = normalizedStoreBase
+    .replace(/^https?:\/\//, "")
+    .replace(/\/+$/, "");
+  const displayStoreHost = isDev ? "mintlin-dev" : configuredStoreHost;
+  const storeUrl = `${displayStoreHost}/${handle}`;
+  const fullUrl = `${normalizedStoreBase}/${handle}`;
 
   const copyStoreUrl = useCallback(async () => {
     try {
@@ -110,7 +122,7 @@ export default function DashboardShell({
     <div className="flex h-full min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-2.5 px-3 pt-2 lg:pt-0">
         <LogoMark />
-        <span className="text-[1.35rem] font-bold tracking-tight text-[#1f2a44]">Mintlin</span>
+        <span className="text-[1.35rem] font-bold tracking-tight text-[#1f2a44]">{appHeading}</span>
       </div>
 
       <nav className="mt-6 flex flex-col gap-0.5 px-2 lg:mt-8" aria-label="Main">
@@ -190,7 +202,7 @@ export default function DashboardShell({
         </button>
         <div className="flex flex-1 items-center justify-center gap-2">
           <LogoMark />
-          <span className="text-lg font-bold text-[#1f2a44]">Mintlin</span>
+          <span className="text-lg font-bold text-[#1f2a44]">{appHeading}</span>
         </div>
         <div className="w-11 shrink-0" aria-hidden />
       </header>

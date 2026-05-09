@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { API_PUBLIC_BASE, resolvePlaybackUrl } from "../../../lib/api";
@@ -32,7 +33,7 @@ function isBenignPlayError(err: unknown): boolean {
   return false;
 }
 
-export default function AudioPreviewPage() {
+function AudioPreviewPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = String(searchParams.get("token") || searchParams.get("t") || "").trim();
@@ -599,5 +600,13 @@ export default function AudioPreviewPage() {
         </p>
       </div>
     </main>
+  );
+}
+
+export default function AudioPreviewPage() {
+  return (
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-slate-950 text-white">Loading audio…</div>}>
+      <AudioPreviewPageInner />
+    </Suspense>
   );
 }

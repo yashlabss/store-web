@@ -3,9 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --webpack",
+    "dev:local": "cross-env NODE_ENV=development NEXT_PUBLIC_APP_NAME=\"Mintlin DEV\" next dev --webpack",
+    "dev": "npm run dev:local",
     "build": "next build",
     "start": "next start",
+    "start:prod": "cross-env NODE_ENV=production NEXT_PUBLIC_APP_NAME=Mintlin next build && cross-env NODE_ENV=production NEXT_PUBLIC_APP_NAME=Mintlin next start",
     "lint": "eslint"
   },
   "dependencies": {
@@ -20,6 +22,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "cross-env": "^10.1.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.2",
     "tailwindcss": "^4",

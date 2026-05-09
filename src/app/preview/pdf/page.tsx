@@ -1,10 +1,11 @@
 "use client";
 
+import { Suspense } from "react";
 import { useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { API_PUBLIC_BASE } from "../../../lib/api";
 
-export default function PdfPreviewPage() {
+function PdfPreviewPageInner() {
   const searchParams = useSearchParams();
   const tokenFromToken = searchParams.get("token");
   const tokenFromT = searchParams.get("t");
@@ -73,5 +74,19 @@ export default function PdfPreviewPage() {
         title="PDF Preview"
       />
     </main>
+  );
+}
+
+export default function PdfPreviewPage() {
+  return (
+    <Suspense
+      fallback={
+        <div style={{ width: "100vw", height: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          Loading PDF preview...
+        </div>
+      }
+    >
+      <PdfPreviewPageInner />
+    </Suspense>
   );
 }

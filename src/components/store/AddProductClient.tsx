@@ -900,7 +900,6 @@ type CheckoutJsonShape = {
 type ProductApi = {
   id: string;
   status?: string;
-  product_type?: string;
   active_tab: TabKey;
   style: StyleKey;
   title: string;
