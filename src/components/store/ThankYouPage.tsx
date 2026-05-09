@@ -684,8 +684,8 @@ export default function ThankYouPage() {
               {whatsappDelivery === "not_configured" ? (
                 <p>
                   WhatsApp is not set up. Add Twilio WhatsApp env vars in{" "}
-                  <code className="rounded bg-slate-100 px-1">store-backend/.env</code> (see{" "}
-                  <code className="rounded bg-slate-100 px-1">.env.example</code>) and restart.
+                  <code className="rounded bg-slate-100 px-1">store-backend/.env.local</code> (dev) or{" "}
+                  <code className="rounded bg-slate-100 px-1">store-backend/.env</code> (production) and restart.
                 </p>
               ) : null}
               {whatsappDelivery === "not_requested" && webinar ? (

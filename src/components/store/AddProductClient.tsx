@@ -2101,7 +2101,7 @@ export default function AddProductClient({
     if (!err) return;
     setToast(
       err === "oauth_not_configured"
-        ? "Google isn’t configured yet: add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to store-web/.env.local (see .env.local.example), add the redirect URI in Google Cloud Console, restart npm run dev, then try Connect again."
+        ? "Google isn’t configured yet: add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to store-web/.env.local (create it via npm run dev if missing), add the redirect URI in Google Cloud Console, restart npm run dev, then try Connect again."
         : "Google connection failed."
     );
     const dismiss = window.setTimeout(() => setToast(null), 14000);
