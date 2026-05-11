@@ -17,12 +17,17 @@ const nextConfig: NextConfig = {
     root: __dirname,
   },
   async rewrites() {
-    return [
-      {
-        source: "/api/:path*",
-        destination: `${backendUrl}/api/:path*`,
-      },
-    ];
+    const destination = `${backendUrl.replace(/\/$/, "")}/api/:path*`;
+    // fallback: only proxy /api/* when no App Router handler exists (e.g. /api/send-order-email → Express).
+    // Explicit routes under src/app/api/** still win.
+    return {
+      fallback: [
+        {
+          source: "/api/:path*",
+          destination,
+        },
+      ],
+    };
   },
   webpack: (config) => {
     // Avoid transient ChunkLoadError during slow first-time recompiles in dev.

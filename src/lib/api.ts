@@ -1,43 +1,33 @@
 /**
- * Base URL for the Express API (no trailing slash).
- * If unset, use same-origin `/api/...` so Next.js rewrites proxy to the backend (avoids CORS in dev).
- * In production, set NEXT_PUBLIC_API_BASE_URL to your deployed API origin.
+ * Browser calls must use same-origin `/api/*`. Next.js rewrites proxy to your backend
+ * (`next.config.ts`: BACKEND_URL / NEXT_PUBLIC_API_BASE_URL). If we prepend
+ * `NEXT_PUBLIC_API_BASE_URL` here, the browser hits api.* cross‑origin from www —
+ * that fails unless CORS_ORIGIN on the API lists www (easy to misconfigure).
+ *
+ * Keep NEXT_PUBLIC_API_BASE_URL for build-time rewrites only, not for fetch URLs below.
  */
 const raw = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
 export const API_BASE_URL =
   raw && raw.length > 0 ? raw.replace(/\/$/, "") : "";
 
-/** Auth routes: `/api/auth` on the backend (proxied in dev when API_BASE_URL is empty). */
-export const API_AUTH_BASE = API_BASE_URL
-  ? `${API_BASE_URL}/api/auth`
-  : "/api/auth";
+/** Proxied to Express `/api/auth`. */
+export const API_AUTH_BASE = "/api/auth";
 
-/** Product / store CRUD: `/api/products` */
-export const API_PRODUCTS_BASE = API_BASE_URL
-  ? `${API_BASE_URL}/api/products`
-  : "/api/products";
+/** Proxied to `/api/products`. */
+export const API_PRODUCTS_BASE = "/api/products";
 
-/** Public storefront (no auth): `/api/public` */
-export const API_PUBLIC_BASE = API_BASE_URL
-  ? `${API_BASE_URL}/api/public`
-  : "/api/public";
+/** Proxied to `/api/public`. */
+export const API_PUBLIC_BASE = "/api/public";
 
-/** Webinar host/session tracking routes: `/api/webinar-host` */
-export const API_WEBINAR_HOST_BASE = API_BASE_URL
-  ? `${API_BASE_URL}/api/webinar-host`
-  : "/api/webinar-host";
+/** Proxied to `/api/webinar-host`. */
+export const API_WEBINAR_HOST_BASE = "/api/webinar-host";
 
 /**
- * Turn a path like `/api/public/...` into an absolute API URL when `NEXT_PUBLIC_API_BASE_URL` is set.
- * Leaves `https://` playback URLs unchanged (e.g. signed storage URLs).
+ * Playback URLs: absolute https pass through; relative paths stay same-origin.
  */
 export function resolvePlaybackUrl(pathOrUrl: string): string {
   const s = String(pathOrUrl || "").trim();
   if (!s) return "";
   if (/^https?:\/\//i.test(s)) return s;
-  if (API_BASE_URL) {
-    return `${API_BASE_URL}${s.startsWith("/") ? s : `/${s}`}`;
-  }
-  return s;
+  return s.startsWith("/") ? s : `/${s}`;
 }
-
