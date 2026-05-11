@@ -1,16 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createGoogleMeetEvent } from "../../../../lib/google-meet";
-import { createZoomMeeting } from "../../../../lib/zoom-meeting";
 import {
   getGoogleTokens,
   hasValidGoogleCredentialTokens,
   upsertGoogleTokens,
 } from "../../../../lib/server/googleTokenStore";
-import {
-  getZoomTokens,
-  hasValidZoomCredentialTokens,
-  upsertZoomTokens,
-} from "../../../../lib/server/zoomTokenStore";
 import { saveBooking, type MeetingLocationType } from "../../../../lib/server/bookingStore";
 import { sendBookingConfirmationEmails } from "../../../../lib/server/notifications";
 
@@ -78,41 +72,44 @@ export async function POST(req: NextRequest) {
     eventId = created.eventId;
     coachEmail = tokenRecord.email || null;
   } else if (meetingLocation === "ZOOM") {
-    const zoomRecord = getZoomTokens(coachId);
-    if (!hasValidZoomCredentialTokens(zoomRecord)) {
+    const backendBase =
+      process.env.BACKEND_URL?.trim() ||
+      process.env.INTERNAL_API_URL?.trim() ||
+      "http://127.0.0.1:5000";
+    const zoomRes = await fetch(`${backendBase.replace(/\/$/, "")}/api/public/coaching/zoom-meeting`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        coach_username: coachId,
+        start_time: startTime,
+        end_time: endTime,
+        topic: `${sessionType} with ${clientName}`,
+        agenda: description,
+      }),
+    });
+    const zoomJson = (await zoomRes.json().catch(() => ({}))) as {
+      meetLink?: string | null;
+      zoomMeetingId?: string | null;
+      message?: string;
+      error?: string;
+    };
+    if (!zoomRes.ok) {
       return NextResponse.json(
         {
           message:
-            "Coach has not connected Zoom, or saved credentials are incomplete. Open Availability, use Connect Zoom again, then retry.",
+            typeof zoomJson.message === "string" && zoomJson.message.trim()
+              ? zoomJson.message.trim()
+              : "Coach has not connected Zoom or meeting creation failed. The seller should connect Zoom in the dashboard, then retry.",
         },
-        { status: 409 }
+        { status: zoomRes.status >= 400 && zoomRes.status < 600 ? zoomRes.status : 502 }
       );
     }
-    const durationMinutes = Math.max(
-      1,
-      Math.round((new Date(endTime).getTime() - new Date(startTime).getTime()) / 60000)
-    );
-    const created = await createZoomMeeting({
-      coachAccessToken: zoomRecord.accessToken,
-      coachRefreshToken: zoomRecord.refreshToken,
-      topic: `${sessionType} with ${clientName}`,
-      startTime,
-      durationMinutes,
-      timezone: "UTC",
-      agenda: description,
-      onTokenRefresh: async ({ accessToken, refreshToken, expiryDate }) => {
-        upsertZoomTokens(coachId, {
-          accessToken: accessToken || null,
-          refreshToken: refreshToken || zoomRecord.refreshToken,
-          expiryDate: expiryDate ?? null,
-          email: zoomRecord.email || null,
-          accountId: zoomRecord.accountId || null,
-        });
-      },
-    });
-    meetLink = created.joinUrl;
-    eventId = created.meetingId;
-    coachEmail = zoomRecord.email || null;
+    meetLink = zoomJson.meetLink != null ? String(zoomJson.meetLink) : null;
+    eventId =
+      zoomJson.zoomMeetingId != null && String(zoomJson.zoomMeetingId).trim()
+        ? String(zoomJson.zoomMeetingId).trim()
+        : null;
+    coachEmail = null;
   }
 
   const booking = saveBooking({
