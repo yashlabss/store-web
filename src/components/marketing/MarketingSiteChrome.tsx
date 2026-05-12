@@ -44,9 +44,9 @@ export default function MarketingSiteChrome({ children }: { children: React.Reac
               <LogoMark />
               <span className="text-lg font-bold text-[#1f2a44]">{MARKETING_SITE_NAME}</span>
             </div>
-            <p className="mt-2 max-w-md text-sm text-slate-600">
-              A creator storefront for digital products—checkout, delivery, and optional live tools when you host
-              sessions.
+            <p className="mt-2 max-w-md text-sm leading-relaxed text-slate-600">
+              Help your audience go from fan to customer in one click. {MARKETING_SITE_NAME} is the creator-friendly
+              way to sell PDFs, ebooks, video, and audio—with checkout and delivery that just work.
             </p>
           </div>
           <div className="flex flex-col gap-2 text-sm">
@@ -66,7 +66,7 @@ export default function MarketingSiteChrome({ children }: { children: React.Reac
           </div>
           <nav className="flex flex-col gap-2 text-sm" aria-label="Footer">
             <Link href="/docs" className="text-slate-600 hover:text-[#1f2a44] hover:underline">
-              Documentation
+              Guide
             </Link>
             <Link href="/support" className="text-slate-600 hover:text-[#1f2a44] hover:underline">
               Support

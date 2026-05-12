@@ -2189,7 +2189,7 @@ export default function AddProductClient({
     if (zoomState !== "error" && !legacyErr) return;
     setToast(
       legacyErr === "oauth_not_configured"
-        ? "Zoom OAuth isn’t configured on the API: set ZOOM_OAUTH_CLIENT_ID, ZOOM_OAUTH_CLIENT_SECRET, and ZOOM_OAUTH_REDIRECT_URI on the backend (Zoom app redirect must point to your API /api/auth/zoom/callback), then try Connect again."
+        ? "Zoom OAuth isn’t configured on the API: set ZOOM_OAUTH_CLIENT_ID, ZOOM_OAUTH_CLIENT_SECRET, and ZOOM_OAUTH_REDIRECT_URI on the backend. In Zoom, the redirect URL must match exactly (production: https://mintln.com/api/auth/zoom/callback — proxied to the API). Then try Connect again."
         : "Zoom connection failed."
     );
     const dismiss = window.setTimeout(() => setToast(null), 14000);

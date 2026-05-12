@@ -49,7 +49,8 @@ export default function LoginForm() {
     if (result.success) {
       const redirectTo =
         sessionStorage.getItem("redirectTo") || searchParams.get("redirectTo");
-      router.push(redirectTo || "/dashboard");
+      sessionStorage.removeItem("redirectTo");
+      router.replace(redirectTo || "/dashboard");
     }
   };
 
@@ -66,19 +67,21 @@ export default function LoginForm() {
   }, [searchParams]);
 
   return (
-    <main className="min-h-screen bg-[#f4f5f7] px-4 py-8 sm:py-10">
+    <main className="min-h-screen bg-gradient-to-b from-[#faf8f4] via-[#f4f5f7] to-[#f4f5f7] px-4 py-8 sm:py-10">
       <section className="mx-auto w-full max-w-md py-4 sm:py-8">
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
+          <p className="text-xs font-semibold uppercase tracking-wide text-indigo-600">Mintln</p>
           <div className="inline-flex items-center gap-2">
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-indigo-600 text-sm font-bold text-white">
+            <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-indigo-600 text-base font-bold text-white shadow-md shadow-indigo-600/25">
               M
             </span>
-            <span className="text-3xl font-bold text-slate-900">Mintlin</span>
           </div>
-          <h1 className="text-3xl font-bold tracking-tight text-[#1f1b4b] sm:text-4xl">
-            Sign in
+          <h1 className="text-3xl font-bold tracking-tight text-[#1f2a44] sm:text-4xl">
+            Welcome back, creator
           </h1>
-          <p className="text-slate-600">Welcome back — use your email and password.</p>
+          <p className="max-w-sm text-base leading-relaxed text-slate-600">
+            Sign in to tweak products, check orders, and keep your digital storefront humming.
+          </p>
         </div>
 
         <form className="space-y-4" onSubmit={handleSubmit} noValidate>
@@ -157,16 +160,16 @@ export default function LoginForm() {
             type="submit"
             suppressHydrationWarning
             disabled={loading}
-            className="w-full rounded-full bg-indigo-600 px-6 py-3 text-lg font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-400"
+            className="w-full rounded-full bg-indigo-600 px-6 py-3 text-lg font-semibold text-white shadow-md shadow-indigo-600/25 transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-400 disabled:shadow-none"
           >
-            {loading ? "Signing in…" : "Sign in"}
+            {loading ? "Opening your dashboard…" : "Go to my store"}
           </button>
         </form>
 
-        <p className="mt-8 text-center text-slate-600">
-          Don&apos;t have an account?{" "}
-          <a href="/auth/signup" className="font-semibold text-indigo-600 underline">
-            Sign up
+        <p className="mt-8 text-center text-sm leading-relaxed text-slate-600">
+          New to Mintln?{" "}
+          <a href="/signup" className="font-semibold text-indigo-600 underline underline-offset-2 hover:text-indigo-500">
+            Launch your store in minutes
           </a>
         </p>
       </section>

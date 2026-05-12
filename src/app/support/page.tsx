@@ -5,29 +5,29 @@ import { MARKETING_SITE_NAME, SUPPORT_EMAIL } from "@/components/marketing/const
 
 export const metadata: Metadata = {
   title: `Support — ${MARKETING_SITE_NAME}`,
-  description: `Get help with your ${MARKETING_SITE_NAME} creator storefront and digital products.`,
+  description: `Real help for ${MARKETING_SITE_NAME} creators—storefront, checkout, and digital delivery.`,
 };
 
 const faqs = [
   {
-    q: `What is ${MARKETING_SITE_NAME} for?`,
-    a: `${MARKETING_SITE_NAME} is a creator storefront: you list digital products, share your store link, and buyers check out in one place. Today we’re focused on digital goods—downloads, access, and similar offers—rather than physical shipping.`,
+    q: `Why do creators choose ${MARKETING_SITE_NAME}?`,
+    a: `You get your own storefront—not a buried listing on someone else’s marketplace. Sell PDFs, ebooks, video, and audio, share one link with your audience, and let checkout + delivery handle the busywork while you focus on what you make best.`,
   },
   {
-    q: "How do I set up my first product?",
-    a: `Sign in to the dashboard, open the flow to add a product, and fill in title, price, and what the buyer receives (files, access, or session details). Publish when you’re ready, then test a purchase or preview the buyer experience.`,
+    q: "How fast can I go live with my first product?",
+    a: `Sign in, open the dashboard, and add a product in minutes: name it, price it, attach or link your files, and hit publish. We always recommend a quick test purchase so you see exactly what your buyers will experience.`,
   },
   {
-    q: "How do payments and payouts work?",
-    a: "Checkout runs through our payments partner (typically Stripe). You’ll connect or verify payout details in settings where available. For a specific charge or payout question, email us with the order or transaction context.",
+    q: "How do I get paid?",
+    a: "Checkout runs through a trusted payments partner (typically Stripe). Complete your payout details in settings, then you’re ready to accept real orders. For a specific payout or charge question, email us with your order or transaction info.",
   },
   {
-    q: "Can I host live sessions or webinars?",
-    a: `Yes, when your product type supports it. You can connect optional tools (such as Zoom or Google Meet) from Account settings or the product editor so join links and scheduling stay with the purchase. Not every product requires a meeting integration.`,
+    q: "My buyer didn’t get their download—what’s the fastest fix?",
+    a: "Open your dashboard to confirm the order went through, double-check delivery links and email toggles on the product, and have them peek at spam. Still stuck? Email us with the order ID—we’ll help you get them unblocked.",
   },
   {
-    q: "How do I disconnect an integration or delete my data?",
-    a: `Open Account settings, disconnect any linked provider there, and email ${SUPPORT_EMAIL} for broader account or data deletion requests. See our Privacy Policy for retention details.`,
+    q: "How do I close my account or delete my data?",
+    a: `Email ${SUPPORT_EMAIL} from the email on your account when you can. Our Privacy Policy explains what we keep and why.`,
   },
 ] as const;
 
@@ -35,33 +35,35 @@ export default function SupportPage() {
   return (
     <MarketingSiteChrome>
       <div className="mx-auto max-w-3xl">
-        <h1 className="text-3xl font-bold tracking-tight text-[#1f2a44] sm:text-4xl">Support</h1>
-        <p className="mt-4 text-lg text-slate-600">
-          We’re here to help with your {MARKETING_SITE_NAME} storefront, digital products, checkout, and optional
-          integrations.
+        <p className="text-sm font-semibold uppercase tracking-wide text-indigo-600">We’ve got you</p>
+        <h1 className="mt-2 text-3xl font-bold tracking-tight text-[#1f2a44] sm:text-4xl">
+          Support that keeps your launch on track
+        </h1>
+        <p className="mt-4 text-lg leading-relaxed text-slate-600">
+          Questions about your storefront, checkout, or getting files to buyers? Reach out—we love helping creators
+          ship with confidence on {MARKETING_SITE_NAME}.
         </p>
 
-        <div className="mt-8 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-6 sm:p-8">
-          <h2 className="text-lg font-bold text-[#1f2a44]">Contact us</h2>
-          <p className="mt-2 text-slate-700">
-            Email{" "}
+        <div className="mt-8 rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/90 to-white p-6 sm:p-8">
+          <h2 className="text-lg font-bold text-[#1f2a44]">Talk to a human</h2>
+          <p className="mt-2 text-slate-700 leading-relaxed">
+            Drop us a line at{" "}
             <a href={`mailto:${SUPPORT_EMAIL}`} className="font-semibold text-indigo-600 hover:underline">
               {SUPPORT_EMAIL}
             </a>{" "}
-            anytime, or use the form below to open a draft in your mail app.
+            or use the form below—we read every message.
           </p>
           <p className="mt-4 text-sm font-medium text-slate-800">
-            Response time: we aim to reply to most inquiries within{" "}
-            <strong className="font-semibold">one business day</strong> (Monday–Friday, excluding U.S.
-            holidays). Complex issues may take longer; we’ll keep you updated.
+            Most replies land within{" "}
+            <strong className="font-semibold text-[#1f2a44]">one business day</strong> (Mon–Fri, U.S. holidays
+            excluded). Bigger issues might need a little longer—we’ll always keep you posted.
           </p>
         </div>
 
         <div className="mt-12">
           <h2 className="text-xl font-bold text-[#1f2a44]">Send a message</h2>
-          <p className="mt-2 text-slate-600">
-            Include as much detail as you can (store URL, product name, screenshots) so we can resolve your request
-            faster.
+          <p className="mt-2 text-slate-600 leading-relaxed">
+            The more context you share—your store link, product name, screenshots—the faster we can solve it.
           </p>
           <div className="mt-6">
             <SupportContactForm />
@@ -69,7 +71,7 @@ export default function SupportPage() {
         </div>
 
         <div className="mt-14">
-          <h2 className="text-xl font-bold text-[#1f2a44]">Frequently asked questions</h2>
+          <h2 className="text-xl font-bold text-[#1f2a44]">Questions we hear a lot</h2>
           <ul className="mt-6 space-y-6">
             {faqs.map((item) => (
               <li

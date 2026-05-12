@@ -2,9 +2,9 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Store Web",
-    short_name: "Store",
-    description: "Creator commerce platform",
+    name: "Mintln",
+    short_name: "Mintln",
+    description: "Your storefront for digital products—PDFs, ebooks, video & audio.",
     start_url: "/",
     display: "standalone",
     background_color: "#ffffff",

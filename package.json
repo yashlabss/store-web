@@ -8,7 +8,7 @@
     "dev": "npm run dev:local",
     "build": "next build",
     "start": "next start",
-    "start:prod": "cross-env NODE_ENV=production NEXT_PUBLIC_APP_NAME=Mintlin NEXT_PUBLIC_API_BASE_URL=https://api.mintlin.com BACKEND_URL=https://api.mintlin.com NEXT_PUBLIC_STORE_BASE_URL=https://mintlin.com next build && cross-env NODE_ENV=production NEXT_PUBLIC_APP_NAME=Mintlin NEXT_PUBLIC_API_BASE_URL=https://api.mintlin.com BACKEND_URL=https://api.mintlin.com NEXT_PUBLIC_STORE_BASE_URL=https://mintlin.com next start",
+    "start:prod": "cross-env NODE_ENV=production NEXT_PUBLIC_APP_NAME=Mintln BACKEND_URL=https://api.mintln.com NEXT_PUBLIC_STORE_BASE_URL=https://mintln.com next build && cross-env NODE_ENV=production NEXT_PUBLIC_APP_NAME=Mintln BACKEND_URL=https://api.mintln.com NEXT_PUBLIC_STORE_BASE_URL=https://mintln.com next start",
     "lint": "eslint"
   },
   "dependencies": {

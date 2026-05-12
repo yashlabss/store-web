@@ -4,7 +4,7 @@ import { MARKETING_SITE_NAME, SITE_DOMAIN, SUPPORT_EMAIL } from "@/components/ma
 
 export const metadata: Metadata = {
   title: `Privacy Policy — ${MARKETING_SITE_NAME}`,
-  description: `How ${MARKETING_SITE_NAME} collects, uses, and protects your data.`,
+  description: `Clear, honest details on how ${MARKETING_SITE_NAME} protects creator and buyer data.`,
 };
 
 const LAST_UPDATED = "May 11, 2026";
@@ -17,13 +17,15 @@ export default function PrivacyPage() {
         <h1 className="mt-2 text-3xl font-bold tracking-tight text-[#1f2a44] sm:text-4xl">
           Privacy Policy
         </h1>
-        <p className="mt-4 text-slate-600">
-          This Privacy Policy describes how {MARKETING_SITE_NAME} (“we,” “us,” or “our”) collects, uses,
-          discloses, and safeguards information when you use our service at{" "}
+        <p className="mt-4 text-slate-600 leading-relaxed">
+          Your trust matters to us. This Privacy Policy explains—in plain language—how {MARKETING_SITE_NAME}{" "}
+          (“we,” “us,” or “our”) collects, uses, and protects information when you use{" "}
           <a href={`https://${SITE_DOMAIN}`} className="text-indigo-600 hover:underline">
             {SITE_DOMAIN}
           </a>{" "}
-          (the “Service”). By using the Service, you agree to this policy.
+          (the “Service”). Today we help creators run{" "}
+          <strong className="font-semibold text-slate-800">digital storefronts, checkout, and delivery</strong> for
+          their buyers. By using the Service, you agree to this policy.
         </p>
 
         <Section title="1. Information we collect">
@@ -34,16 +36,16 @@ export default function PrivacyPage() {
               address, and other details you provide when you register or update your account.
             </li>
             <li>
-              <strong className="font-semibold text-slate-800">Store and commerce data:</strong> product
-              listings, descriptions, pricing, digital assets or links you upload, storefront settings, and
-              records of orders, buyers, and fulfillment status needed to operate your shop.
+              <strong className="font-semibold text-slate-800">Store and digital delivery data:</strong> product
+              listings, descriptions, pricing, digital files or links you configure for delivery, storefront
+              settings, and records of orders, buyers, and delivery or access status needed to fulfill digital
+              purchases.
             </li>
             <li>
-              <strong className="font-semibold text-slate-800">Connected integrations:</strong> when you
-              connect third-party services (for example Zoom or Google for meetings and calendar), we receive
-              and store identifiers, metadata, and OAuth tokens for those providers (tokens stored in encrypted
-              form where applicable), and data needed to run the features you turn on—such as creating meetings,
-              sharing join links, or syncing events—subject to each provider’s terms and your settings.
+              <strong className="font-semibold text-slate-800">Optional account connections:</strong> if you
+              connect additional tools made available in your dashboard in the future, we may receive identifiers,
+              metadata, or tokens for those services only as needed for the features you enable, subject to each
+              provider’s terms.
             </li>
             <li>
               <strong className="font-semibold text-slate-800">Payment information:</strong> payments are
@@ -58,8 +60,8 @@ export default function PrivacyPage() {
             </li>
             <li>
               <strong className="font-semibold text-slate-800">Communications:</strong> content of messages you
-              send to support or that we send to you (for example, order confirmations, delivery or session
-              updates, and account notices).
+              send to support or that we send to you (for example, order confirmations, digital delivery or access
+              details, and account notices).
             </li>
           </ul>
         </Section>
@@ -67,9 +69,9 @@ export default function PrivacyPage() {
         <Section title="2. How we use information">
           <p>We use personal data to provide and improve the Service, including to:</p>
           <ul className="mt-3 list-disc space-y-2 pl-5">
-            <li>Operate your storefront: display products, process orders, and deliver digital goods or access you configure.</li>
-            <li>Create or coordinate meetings or sessions when you use integrated providers (for example Zoom or Google), including join links and related buyer communications where enabled.</li>
-            <li>Send transactional and service emails (for example, receipts, download or access details, session reminders, and account notices).</li>
+            <li>Operate your storefront: display digital products, process orders, and deliver files, links, or access you configure for buyers.</li>
+            <li>Send transactional and service emails (for example, receipts, download or access instructions, and account notices).</li>
+            <li>Operate payment, hosting, and infrastructure providers that power checkout and digital delivery.</li>
             <li>Process payments, prevent fraud, and manage billing.</li>
             <li>Maintain security, troubleshoot issues, and comply with legal obligations.</li>
             <li>Analyze aggregated or de-identified usage to improve the product.</li>
@@ -82,16 +84,17 @@ export default function PrivacyPage() {
           </p>
           <ul className="mt-3 list-disc space-y-2 pl-5">
             <li>
-              <strong className="font-semibold text-slate-800">Meeting and calendar providers (e.g. Zoom,
-              Google):</strong> when you connect them, meeting creation, event data, attendance-related signals,
-              or recordings, according to the permissions you grant and each provider’s terms.
+              <strong className="font-semibold text-slate-800">Stripe:</strong> payment processing and billing for
+              digital purchases.
             </li>
             <li>
               <strong className="font-semibold text-slate-800">Supabase:</strong> authentication, database, and
               related infrastructure for storing application data securely.
             </li>
             <li>
-              <strong className="font-semibold text-slate-800">Stripe:</strong> payment processing and billing.
+              <strong className="font-semibold text-slate-800">Other services you enable:</strong> if you connect
+              optional tools offered in the product, those vendors process data according to their policies and the
+              permissions you grant.
             </li>
           </ul>
           <p className="mt-3">
@@ -143,10 +146,9 @@ export default function PrivacyPage() {
           <p>
             We retain personal data only as long as needed for the purposes described in this policy, unless a
             longer period is required or permitted by law. Account data is generally kept for the life of your
-            account and a reasonable period afterward. Tokens and metadata for connected integrations (such as
-            Zoom or Google) are retained while each integration is active and for a limited period after
-            disconnection for security and audit purposes, then removed or anonymized according to our retention
-            schedule.
+            account and a reasonable period afterward. If you connect optional services, related tokens and metadata
+            are retained while each connection is active and for a limited period after you disconnect, for security
+            and audit purposes, then removed or anonymized according to our retention schedule.
             Transaction records may be retained longer where required for tax, accounting, or regulatory
             compliance.
           </p>

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
 /**
- * When ngrok points at Next (port 3000), this route receives Zoom's POST and
- * forwards the raw body to the Express API so validation is not lost in rewrites.
+ * Optional proxy: if Zoom posts to the Next origin, forward the raw body to the API
+ * (BACKEND_URL / NEXT_PUBLIC_API_BASE_URL) so signature validation still works.
+ * In production, Zoom usually posts directly to https://api.mintln.com/.../zoom/webhook.
  */
 const backendBase =
   process.env.BACKEND_URL?.trim() ||
@@ -22,12 +23,20 @@ export async function POST(req: NextRequest) {
   const body = await req.text();
   const contentType = req.headers.get("content-type") || "application/json";
 
+  const forward: Record<string, string> = {
+    "Content-Type": contentType,
+    "ngrok-skip-browser-warning": "1",
+  };
+  const zmSig = req.headers.get("x-zm-signature");
+  const zmTs = req.headers.get("x-zm-request-timestamp");
+  const zmAuth = req.headers.get("authorization");
+  if (zmSig) forward["x-zm-signature"] = zmSig;
+  if (zmTs) forward["x-zm-request-timestamp"] = zmTs;
+  if (zmAuth) forward["authorization"] = zmAuth;
+
   const res = await fetch(target, {
     method: "POST",
-    headers: {
-      "Content-Type": contentType,
-      "ngrok-skip-browser-warning": "1",
-    },
+    headers: forward,
     body,
   });
 

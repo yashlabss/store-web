@@ -81,7 +81,7 @@ export default function DashboardShell({
 }: DashboardShellProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const appHeading = (process.env.NEXT_PUBLIC_APP_NAME || "Mintlin").trim() || "Mintlin";
+  const appHeading = (process.env.NEXT_PUBLIC_APP_NAME || "Mintln").trim() || "Mintln";
 
   const isDev = process.env.NODE_ENV === "development";
   const configuredStoreBase = (process.env.NEXT_PUBLIC_STORE_BASE_URL || "").trim();
@@ -89,11 +89,11 @@ export default function DashboardShell({
     ? configuredStoreBase.replace(/\/+$/, "")
     : isDev
       ? "http://localhost:3000"
-      : "https://mintlin.com";
+      : "https://mintln.com";
   const configuredStoreHost = normalizedStoreBase
     .replace(/^https?:\/\//, "")
     .replace(/\/+$/, "");
-  const displayStoreHost = isDev ? "mintlin-dev" : configuredStoreHost;
+  const displayStoreHost = isDev ? "mintln-dev" : configuredStoreHost;
   const storeUrl = `${displayStoreHost}/${handle}`;
   const fullUrl = `${normalizedStoreBase}/${handle}`;
 

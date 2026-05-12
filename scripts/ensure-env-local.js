@@ -15,7 +15,7 @@ if (fs.existsSync(localFile)) {
 
 const body = `# Local development — overrides store-web/.env (gitignored).
 
-NEXT_PUBLIC_APP_NAME=Mintlin DEV
+NEXT_PUBLIC_APP_NAME=Mintln DEV
 NEXT_PUBLIC_API_BASE_URL=
 BACKEND_URL=http://127.0.0.1:5000
 NEXT_PUBLIC_STORE_BASE_URL=http://localhost:3000

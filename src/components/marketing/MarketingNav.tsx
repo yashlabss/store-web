@@ -7,7 +7,7 @@ const navLinkClass =
   "text-[15px] font-medium text-slate-600 transition-colors hover:text-[#1f2a44] py-1";
 
 const navItems = [
-  { href: "/docs", label: "Docs" },
+  { href: "/docs", label: "Guide" },
   { href: "/support", label: "Support" },
   { href: "/privacy", label: "Privacy" },
   { href: "/terms", label: "Terms" },
@@ -15,7 +15,6 @@ const navItems = [
 
 export default function MarketingNav() {
   const [open, setOpen] = useState(false);
-
   const close = useCallback(() => setOpen(false), []);
 
   useEffect(() => {
@@ -57,7 +56,7 @@ export default function MarketingNav() {
       </button>
 
       <nav
-        className="hidden flex-wrap items-center justify-end gap-x-5 gap-y-2 md:flex"
+        className="hidden flex-wrap items-center justify-end gap-x-3 gap-y-2 sm:gap-x-4 md:flex"
         aria-label="Site"
       >
         {navItems.map(({ href, label }) => (
@@ -66,8 +65,14 @@ export default function MarketingNav() {
           </Link>
         ))}
         <Link
+          href="/signup"
+          className="rounded-full border border-indigo-200 bg-white px-4 py-2 text-center text-sm font-semibold text-indigo-700 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50"
+        >
+          Launch your store
+        </Link>
+        <Link
           href="/auth/login"
-          className="rounded-full bg-indigo-600 px-4 py-2 text-center text-sm font-semibold text-white hover:bg-indigo-500"
+          className="rounded-full bg-indigo-600 px-4 py-2 text-center text-sm font-semibold text-white shadow-md shadow-indigo-600/20 transition hover:bg-indigo-500"
         >
           Sign in
         </Link>
@@ -97,8 +102,15 @@ export default function MarketingNav() {
               </Link>
             ))}
             <Link
+              href="/signup"
+              className="mt-2 rounded-full border border-indigo-200 bg-white px-4 py-2.5 text-center text-sm font-semibold text-indigo-700 hover:bg-indigo-50"
+              onClick={close}
+            >
+              Launch your store
+            </Link>
+            <Link
               href="/auth/login"
-              className="mt-3 rounded-full bg-indigo-600 px-4 py-2.5 text-center text-sm font-semibold text-white hover:bg-indigo-500"
+              className="mt-2 rounded-full bg-indigo-600 px-4 py-2.5 text-center text-sm font-semibold text-white shadow-md shadow-indigo-600/20 hover:bg-indigo-500"
               onClick={close}
             >
               Sign in

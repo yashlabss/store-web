@@ -179,15 +179,16 @@ const PRODUCT_CARDS: ProductTypeCard[] = [
   //   iconColor: "#059669",
   //   icon: <IconMembership />,
   // },
-  {
-    id: "webinar",
-    title: "Webinar",
-    description: "Host exclusive coaching sessions or online events with multiple customers.",
-    href: `${NEW}?kind=webinar`,
-    iconBg: "#fff7ed",
-    iconColor: "#ea580c",
-    icon: <IconWebinar />,
-  },
+  // Webinar product — still in development; keep hidden in production until the flow is finished.
+  // {
+  //   id: "webinar",
+  //   title: "Webinar",
+  //   description: "Host exclusive coaching sessions or online events with multiple customers.",
+  //   href: `${NEW}?kind=webinar`,
+  //   iconBg: "#fff7ed",
+  //   iconColor: "#ea580c",
+  //   icon: <IconWebinar />,
+  // },
   // {
   //   id: "community",
   //   title: "Community",

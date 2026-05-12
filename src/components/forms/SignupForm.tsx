@@ -284,7 +284,8 @@ export default function SignupForm() {
     if (result.success) {
       const redirectTo =
         sessionStorage.getItem("redirectTo") || searchParams.get("redirectTo");
-      router.push(redirectTo || "/dashboard");
+      sessionStorage.removeItem("redirectTo");
+      router.replace(redirectTo || "/dashboard");
     }
   };
 
@@ -345,19 +346,20 @@ export default function SignupForm() {
 
         {/* Header — matches reference */}
         <div className="mb-[29px] text-center">
-          <h1 className="text-[1.47rem] font-bold leading-tight tracking-tight text-[#1f1b4b] sm:text-[1.68rem]">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-violet-600">You’re almost there</p>
+          <h1 className="text-[1.47rem] font-bold leading-tight tracking-tight text-[#1f2a44] sm:text-[1.68rem]">
             Hey @{displayUsername}{" "}
             <span className="inline-block" aria-hidden>
               👋
             </span>
           </h1>
-          <p className="mt-2 text-[1rem] leading-relaxed text-slate-500">
-            Launch your store and share one link with your audience.
+          <p className="mt-2 text-[1rem] leading-relaxed text-slate-600">
+            Claim your link, add your first digital product, and start sending fans somewhere built to sell.
           </p>
         </div>
 
         <form className="space-y-[17px]" onSubmit={handleSubmit} noValidate>
-          {/* Username: @  mintlin.com/  [username] */}
+          {/* Username: @  mintln.com/  [username] */}
           <div>
             <div
               className={`${fieldClass} ${
@@ -375,7 +377,7 @@ export default function SignupForm() {
                 @
               </span>
               <span className="shrink-0 whitespace-nowrap text-[15px] font-bold text-slate-900">
-                mintlin.com/
+                mintln.com/
               </span>
               <input
                 id="username"
@@ -637,9 +639,9 @@ export default function SignupForm() {
             type="submit"
             suppressHydrationWarning
             disabled={loading}
-            className="mt-2 w-full rounded-full bg-violet-600 py-[13px] text-[15px] font-bold text-white shadow-sm transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:bg-slate-300"
+            className="mt-2 w-full rounded-full bg-violet-600 py-[13px] text-[15px] font-bold text-white shadow-md shadow-violet-600/25 transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
           >
-            {loading ? "…" : "Create account"}
+            {loading ? "Creating your store…" : "Create my Mintln store"}
           </button>
         </form>
 
@@ -655,10 +657,10 @@ export default function SignupForm() {
           .
         </p> */}
 
-        <p className="mt-[21px] text-center text-[15px] text-slate-600">
-          Have an account?{" "}
-          <a href={loginHref} className="font-medium text-blue-600 underline">
-            Login
+        <p className="mt-[21px] text-center text-[15px] leading-relaxed text-slate-600">
+          Already have a store?{" "}
+          <a href={loginHref} className="font-semibold text-violet-700 underline underline-offset-2 hover:text-violet-600">
+            Sign in here
           </a>
         </p>
       </section>

@@ -4,7 +4,7 @@ import { MARKETING_SITE_NAME, SITE_DOMAIN, SUPPORT_EMAIL } from "@/components/ma
 
 export const metadata: Metadata = {
   title: `Terms of Use — ${MARKETING_SITE_NAME}`,
-  description: `Terms governing use of ${MARKETING_SITE_NAME}.`,
+  description: `The ground rules for building your business on ${MARKETING_SITE_NAME}.`,
 };
 
 const LAST_UPDATED = "May 11, 2026";
@@ -17,24 +17,28 @@ export default function TermsPage() {
         <h1 className="mt-2 text-3xl font-bold tracking-tight text-[#1f2a44] sm:text-4xl">
           Terms of Use
         </h1>
-        <p className="mt-4 text-slate-600">
-          These Terms of Use (“Terms”) govern your access to and use of {MARKETING_SITE_NAME} (the “Service”)
-          offered by us, including websites and applications at{" "}
+        <p className="mt-4 text-slate-600 leading-relaxed">
+          Thanks for building with {MARKETING_SITE_NAME}. These Terms of Use (“Terms”) set clear expectations for
+          how you and we work together when you use the Service at{" "}
           <a href={`https://${SITE_DOMAIN}`} className="text-indigo-600 hover:underline">
             {SITE_DOMAIN}
-          </a>
-          . By accessing or using the Service, you agree to these Terms. If you do not agree, do not use the
-          Service.
+          </a>{" "}
+          (including related sites or apps). By using the Service, you agree to these Terms. If you do not agree,
+          please don’t use the Service.
         </p>
 
         <Section title="1. What the Service does">
           <p>
-            {MARKETING_SITE_NAME} is a creator commerce platform that lets you run a storefront and sell{" "}
-            <strong className="font-semibold text-slate-800">digital products</strong>—for example downloads,
-            templates, access to content, or paid offers that may include scheduled sessions. You configure
-            products, pricing, and delivery; we provide hosting, checkout, and tools to connect optional
-            integrations (such as meeting or calendar providers) when you choose to use them. We may modify, add,
-            or discontinue features with reasonable notice where appropriate.
+            {MARKETING_SITE_NAME} is built so you can package your knowledge and creativity into products people pay
+            for online. It is a creator commerce platform for{" "}
+            <strong className="font-semibold text-slate-800">digital product delivery</strong>: you run a storefront,
+            list digital goods (for example downloads, templates, or access you define), set pricing, and configure
+            how buyers receive what they paid for after checkout. We provide hosting, checkout, and related tools to
+            operate that experience.{" "}
+            <strong className="font-semibold text-slate-800">
+              We do not fulfill physical goods or shipping through the Service today.
+            </strong>{" "}
+            We may modify, add, or discontinue features with reasonable notice where appropriate.
           </p>
         </Section>
 
@@ -52,29 +56,30 @@ export default function TermsPage() {
             <li>Use the Service only in compliance with these Terms and all applicable laws and regulations.</li>
             <li>
               Comply with the terms, acceptable use policies, and platform rules of any third-party service you
-              connect (for example Zoom, Google, or payment partners).
+              use with the Service (including payment partners and any optional tools you connect).
             </li>
             <li>
               Not misuse the Service, attempt unauthorized access, interfere with other users, or distribute
               malware or unlawful content.
             </li>
             <li>
-              Obtain any required consents from your customers or attendees when you collect or process their
-              data in connection with your use of the Service.
+              Obtain any required consents from your customers when you collect or process their data in
+              connection with your use of the Service.
             </li>
             <li>
-              Be solely responsible for the content you publish, the products you sell, refunds you offer your
-              customers, and any live sessions or meetings you host outside or through integrated tools.
+              Be solely responsible for the content you publish, the digital products you sell, how you describe
+              delivery, and any refunds or support policies you offer your customers.
             </li>
           </ul>
         </Section>
 
-        <Section title="4. Integrations">
+        <Section title="4. Third-party services">
           <p>
-            Third-party integrations (including payments, meetings, calendar, email, or analytics tools) are
-            subject to each provider’s terms and availability. You authorize us to access and use information
-            from connected services as needed to provide features you enable. You can disconnect integrations as
-            described in our documentation; some data may remain as outlined in our Privacy Policy.
+            Payments and core infrastructure run through subprocessors (for example payment processors and cloud
+            database providers) as described in our Privacy Policy. Optional integrations you enable are subject
+            to each provider’s terms and availability. You authorize us to access and use information from connected
+            services only as needed for the features you turn on. You can disconnect optional integrations where
+            supported; some data may remain as outlined in our Privacy Policy.
           </p>
         </Section>
 
