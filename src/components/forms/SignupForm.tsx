@@ -357,7 +357,7 @@ export default function SignupForm() {
         </div>
 
         <form className="space-y-[17px]" onSubmit={handleSubmit} noValidate>
-          {/* Username: @  mintlin.com/  [username] */}
+          {/* Username: @  www.mintlin.com/  [username] */}
           <div>
             <div
               className={`${fieldClass} ${
@@ -375,7 +375,7 @@ export default function SignupForm() {
                 @
               </span>
               <span className="shrink-0 whitespace-nowrap text-[15px] font-bold text-slate-900">
-                mintlin.com/
+                www.mintlin.com/
               </span>
               <input
                 id="username"
