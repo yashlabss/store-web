@@ -89,7 +89,7 @@ export default function DashboardShell({
     ? configuredStoreBase.replace(/\/+$/, "")
     : isDev
       ? "http://localhost:3000"
-      : "https://mintlin.com";
+      : "https://www.mintlin.com";
   const configuredStoreHost = normalizedStoreBase
     .replace(/^https?:\/\//, "")
     .replace(/\/+$/, "");
