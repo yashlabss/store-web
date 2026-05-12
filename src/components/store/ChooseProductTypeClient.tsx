@@ -179,6 +179,7 @@ const PRODUCT_CARDS: ProductTypeCard[] = [
   //   iconColor: "#059669",
   //   icon: <IconMembership />,
   // },
+  // Webinar product — still in development; keep hidden in production until the flow is finished.
   // {
   //   id: "webinar",
   //   title: "Webinar",

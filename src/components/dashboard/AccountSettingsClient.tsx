@@ -375,6 +375,12 @@ export default function AccountSettingsClient() {
     Partial<Record<"street_address" | "city" | "state_province" | "postal_code", string>>
   >({});
 
+  const [zoomConnected, setZoomConnected] = useState(false);
+  const [zoomEmail, setZoomEmail] = useState<string | null>(null);
+  const [zoomLoading, setZoomLoading] = useState(false);
+  const [zoomDisconnecting, setZoomDisconnecting] = useState(false);
+  const [zoomIntegrationMsg, setZoomIntegrationMsg] = useState("");
+
   const signOut = useCallback(() => {
     localStorage.removeItem("auth_token");
     router.push("/auth/login");
@@ -427,6 +433,66 @@ export default function AccountSettingsClient() {
   useEffect(() => {
     void loadUser();
   }, [loadUser]);
+
+  useEffect(() => {
+    if (activeTab !== "integrations") return;
+    const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+    if (!token) return;
+    setZoomLoading(true);
+    setZoomIntegrationMsg("");
+    void fetch(`${API_AUTH_BASE}/zoom/status`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(async (res) => {
+        const data = (await res.json().catch(() => ({}))) as {
+          connected?: boolean;
+          zoomEmail?: string;
+        };
+        setZoomConnected(Boolean(data.connected));
+        setZoomEmail(typeof data.zoomEmail === "string" ? data.zoomEmail : null);
+      })
+      .catch(() => {
+        setZoomConnected(false);
+        setZoomEmail(null);
+      })
+      .finally(() => setZoomLoading(false));
+  }, [activeTab]);
+
+  const connectZoom = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const t = localStorage.getItem("auth_token");
+    if (!t) {
+      router.push("/auth/login?redirectTo=/dashboard/settings?tab=integrations");
+      return;
+    }
+    const returnTo = `/dashboard/settings?tab=integrations`;
+    window.location.href = `${API_AUTH_BASE}/zoom/connect?token=${encodeURIComponent(t)}&returnTo=${encodeURIComponent(returnTo)}`;
+  }, [router]);
+
+  const disconnectZoom = useCallback(async () => {
+    const t = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+    if (!t) return;
+    setZoomDisconnecting(true);
+    setZoomIntegrationMsg("");
+    try {
+      const res = await fetch(`${API_AUTH_BASE}/zoom/disconnect`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${t}` },
+      });
+      if (res.ok) {
+        setZoomConnected(false);
+        setZoomEmail(null);
+        setZoomIntegrationMsg("Zoom account disconnected.");
+      } else {
+        const data = (await res.json().catch(() => ({}))) as { message?: string };
+        setZoomIntegrationMsg(data.message || "Could not disconnect Zoom.");
+      }
+    } catch {
+      setZoomIntegrationMsg("Could not disconnect Zoom.");
+    } finally {
+      setZoomDisconnecting(false);
+    }
+  }, []);
 
   const saveProfile = async () => {
     const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
@@ -998,6 +1064,59 @@ export default function AccountSettingsClient() {
                   </button>
                 </div>
               </section>
+            </div>
+          ) : activeTab === "integrations" ? (
+            <div className="max-w-xl space-y-6">
+              <div>
+                <h2 className="text-lg font-bold text-[#1f2a44]">Zoom</h2>
+                <p className="mt-2 text-sm text-slate-600">
+                  Connect your Zoom account so webinar purchases create meetings on your host account and cloud
+                  recordings can be delivered to buyers.
+                </p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                {zoomLoading ? (
+                  <p className="text-sm text-slate-500">Loading connection status…</p>
+                ) : zoomConnected ? (
+                  <div className="space-y-4">
+                    <p className="text-sm font-medium text-emerald-800">
+                      Connected
+                      {zoomEmail ? (
+                        <span className="mt-1 block font-normal text-slate-700">
+                          Zoom account: {zoomEmail}
+                        </span>
+                      ) : null}
+                    </p>
+                    <button
+                      type="button"
+                      disabled={zoomDisconnecting}
+                      onClick={() => void disconnectZoom()}
+                      className="rounded-full border border-rose-200 bg-rose-50 px-5 py-2 text-sm font-semibold text-rose-800 hover:bg-rose-100 disabled:opacity-50"
+                    >
+                      {zoomDisconnecting ? "Disconnecting…" : "Disconnect Zoom"}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <p className="text-sm text-slate-600">No Zoom account linked.</p>
+                    <button
+                      type="button"
+                      onClick={connectZoom}
+                      className="rounded-full bg-violet-600 px-5 py-2 text-sm font-semibold text-white hover:bg-violet-700"
+                    >
+                      Connect Zoom account
+                    </button>
+                  </div>
+                )}
+                {zoomIntegrationMsg ? (
+                  <p className="mt-4 text-sm text-slate-700" role="status">
+                    {zoomIntegrationMsg}
+                  </p>
+                ) : null}
+              </div>
+              <p className="text-xs text-slate-500">
+                OAuth tokens are stored encrypted on the server and are never exposed to the browser.
+              </p>
             </div>
           ) : activeTab === "security" ? (
             <div className="space-y-6">

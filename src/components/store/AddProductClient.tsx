@@ -1320,6 +1320,8 @@ export default function AddProductClient({
   const [cancelSubscriptionAfterEnabled, setCancelSubscriptionAfterEnabled] = useState(false);
   const [cancelSubscriptionAfter, setCancelSubscriptionAfter] = useState("N/A (ongoing payments)");
   const [webinarSlots, setWebinarSlots] = useState<WebinarSlot[]>([]);
+  const [webinarAutoCreateMeeting, setWebinarAutoCreateMeeting] = useState(true);
+  const [webinarStaticJoinUrl, setWebinarStaticJoinUrl] = useState("");
   const [webinarDatePickerIndex, setWebinarDatePickerIndex] = useState<number | null>(null);
   const [webinarTimeOptionsOpenIndex, setWebinarTimeOptionsOpenIndex] = useState<number | null>(null);
   const [urlMediaLink, setUrlMediaLink] = useState("");
@@ -1478,35 +1480,63 @@ export default function AddProductClient({
 
   const refreshZoomConnectionStatus = useCallback(async () => {
     if (typeof window === "undefined") return;
-    if (!isCoachingCheckout || meetingLocation !== "Zoom Meeting") return;
+    const paramKind = (searchParams.get("kind") || "").toLowerCase();
+    const isWebinarEditor = paramKind === "webinar" || persistedProductType === "webinar";
+    /** Backend creates Zoom meetings for all non–Google Meet locations when auto-create is on. */
+    const webinarNeedsZoom =
+      isWebinarEditor && webinarAutoCreateMeeting && meetingLocation !== "Google Meet";
+    const coachingNeedsZoom = isCoachingCheckout && meetingLocation === "Zoom Meeting";
+    if (!webinarNeedsZoom && !coachingNeedsZoom) return;
+    const t = localStorage.getItem("auth_token");
+    if (!t) {
+      setZoomConnected(false);
+      setZoomEmail(null);
+      return;
+    }
     setCheckingZoomConnection(true);
     try {
-      const res = await fetch(
-        `/api/auth/zoom/status?coachId=${encodeURIComponent(googleCoachId)}`
-      );
+      const res = await fetch(`/api/auth/zoom/status`, {
+        headers: { Authorization: `Bearer ${t}` },
+      });
       const data = (await res.json().catch(() => ({}))) as {
         connected?: boolean;
         email?: string | null;
       };
       setZoomConnected(Boolean(data.connected));
-      setZoomEmail(typeof data.email === "string" ? data.email : null);
+      const zE =
+        typeof (data as { zoomEmail?: string }).zoomEmail === "string"
+          ? (data as { zoomEmail: string }).zoomEmail
+          : null;
+      setZoomEmail(zE || (typeof data.email === "string" ? data.email : null));
     } catch {
       setZoomConnected(false);
       setZoomEmail(null);
     } finally {
       setCheckingZoomConnection(false);
     }
-  }, [googleCoachId, isCoachingCheckout, meetingLocation]);
+  }, [
+    isCoachingCheckout,
+    meetingLocation,
+    webinarAutoCreateMeeting,
+    searchParams,
+    persistedProductType,
+  ]);
 
   const startZoomConnect = useCallback(() => {
     if (typeof window === "undefined") return;
+    const t = localStorage.getItem("auth_token");
+    if (!t) {
+      setToast("Sign in again to connect Zoom.");
+      window.setTimeout(() => setToast(null), 6000);
+      return;
+    }
     const returnUrl = new URL(window.location.href);
     returnUrl.searchParams.set("return_tab", activeTab);
     const returnTo = `${returnUrl.pathname}${returnUrl.search}`;
-    window.location.href = `/api/auth/zoom?coachId=${encodeURIComponent(
-      googleCoachId
+    window.location.href = `/api/auth/zoom/connect?token=${encodeURIComponent(
+      t
     )}&returnTo=${encodeURIComponent(returnTo)}`;
-  }, [activeTab, googleCoachId]);
+  }, [activeTab]);
 
   const createTestZoomMeeting = useCallback(async () => {
     if (!zoomConnected) return;
@@ -1521,36 +1551,29 @@ export default function AddProductClient({
         window.setTimeout(() => setToast(null), 6000);
         return;
       }
-      const res = await fetch("/api/bookings/create", {
+      const res = await fetch("/api/auth/zoom/meeting", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("auth_token") || ""}`,
+        },
         body: JSON.stringify({
-          coachId: googleCoachId,
-          clientName: user.full_name || user.username || "Test Client",
-          clientEmail,
+          topic: `Test Coaching Session with ${user.full_name || user.username || "Test Client"}`,
           startTime: start.toISOString(),
           endTime: end.toISOString(),
-          sessionType: "Test Coaching Session",
-          meetingLocation: "ZOOM",
-          description: "Auto-generated test booking from coaching availability page",
+          agenda: "Auto-generated test meeting from coaching availability page",
         }),
       });
       const data = (await res.json().catch(() => ({}))) as {
         message?: string;
         meetLink?: string | null;
-        emailSent?: boolean;
-        emailNote?: string;
       };
       if (!res.ok) throw new Error(data.message || "Could not create test Zoom meeting.");
       const line =
         data.meetLink != null && String(data.meetLink).trim()
           ? `Test Zoom meeting created. Join link: ${data.meetLink}`
           : "Test Zoom meeting created. Check your Zoom account.";
-      const emailLine =
-        data.emailSent === false && typeof data.emailNote === "string" && data.emailNote.trim()
-          ? ` ${data.emailNote}`
-          : "";
-      setToast(line + emailLine);
+      setToast(line);
       window.setTimeout(() => setToast(null), 12000);
     } catch (e) {
       setToast(e instanceof Error ? e.message : "Could not create test Zoom meeting.");
@@ -1889,6 +1912,9 @@ export default function AddProductClient({
         duration_mins?: string;
         meeting_location?: string;
         max_attendees?: string;
+        meeting_provider?: string;
+        auto_create_meeting?: boolean;
+        static_join_url?: string;
       };
       attached_file_name?: string;
       confirmation_email?: { subject?: string; body?: string };
@@ -1974,6 +2000,17 @@ export default function AddProductClient({
       }
       if (typeof webinar.max_attendees === "string") {
         setMaxAttendees(webinar.max_attendees);
+      }
+      if (typeof webinar.meeting_provider === "string") {
+        const pv = webinar.meeting_provider.toLowerCase();
+        if (pv === "google_meet") setMeetingLocation("Google Meet");
+        else if (pv === "zoom") setMeetingLocation("Zoom Meeting");
+      }
+      if (typeof webinar.auto_create_meeting === "boolean") {
+        setWebinarAutoCreateMeeting(webinar.auto_create_meeting);
+      }
+      if (typeof webinar.static_join_url === "string") {
+        setWebinarStaticJoinUrl(webinar.static_join_url);
       }
     } else if (p.product_type === "webinar") {
       setWebinarSlots([]);
@@ -2072,9 +2109,21 @@ export default function AddProductClient({
   }, [isCoachingCheckout, meetingLocation, refreshGoogleConnectionStatus]);
 
   useEffect(() => {
-    if (!isCoachingCheckout || meetingLocation !== "Zoom Meeting") return;
+    const paramKind = (searchParams.get("kind") || "").toLowerCase();
+    const isWebinarEditor = paramKind === "webinar" || persistedProductType === "webinar";
+    const webinarNeedsZoom =
+      isWebinarEditor && webinarAutoCreateMeeting && meetingLocation !== "Google Meet";
+    const coachingNeedsZoom = isCoachingCheckout && meetingLocation === "Zoom Meeting";
+    if (!webinarNeedsZoom && !coachingNeedsZoom) return;
     void refreshZoomConnectionStatus();
-  }, [isCoachingCheckout, meetingLocation, refreshZoomConnectionStatus]);
+  }, [
+    isCoachingCheckout,
+    meetingLocation,
+    webinarAutoCreateMeeting,
+    refreshZoomConnectionStatus,
+    searchParams,
+    persistedProductType,
+  ]);
 
   useEffect(() => {
     if (!searchParams.get("google_connected")) return;
@@ -2112,7 +2161,9 @@ export default function AddProductClient({
   }, [searchParams, router]);
 
   useEffect(() => {
-    if (!searchParams.get("zoom_connected")) return;
+    const z = searchParams.get("zoom");
+    const legacy = searchParams.get("zoom_connected");
+    if (z !== "connected" && legacy !== "1") return;
     void refreshZoomConnectionStatus();
     const returnTab = searchParams.get("return_tab");
     if (
@@ -2126,21 +2177,24 @@ export default function AddProductClient({
       setActiveTab(returnTab);
     }
     const url = new URL(window.location.href);
+    url.searchParams.delete("zoom");
     url.searchParams.delete("zoom_connected");
     url.searchParams.delete("return_tab");
     router.replace(url.pathname + url.search, { scroll: false });
   }, [searchParams, refreshZoomConnectionStatus, router]);
 
   useEffect(() => {
-    const err = searchParams.get("zoom_error");
-    if (!err) return;
+    const zoomState = searchParams.get("zoom");
+    const legacyErr = searchParams.get("zoom_error");
+    if (zoomState !== "error" && !legacyErr) return;
     setToast(
-      err === "oauth_not_configured"
-        ? "Zoom isn’t configured yet: add ZOOM_CLIENT_ID and ZOOM_CLIENT_SECRET to store-web/.env.local, set redirect URI to /api/auth/zoom/callback, restart npm run dev, then try Connect again."
+      legacyErr === "oauth_not_configured"
+        ? "Zoom OAuth isn’t configured on the API: set ZOOM_OAUTH_CLIENT_ID, ZOOM_OAUTH_CLIENT_SECRET, and ZOOM_OAUTH_REDIRECT_URI on the backend. In Zoom, the redirect URL must match exactly (production: https://mintln.com/api/auth/zoom/callback — proxied to the API). Then try Connect again."
         : "Zoom connection failed."
     );
     const dismiss = window.setTimeout(() => setToast(null), 14000);
     const url = new URL(window.location.href);
+    url.searchParams.delete("zoom");
     url.searchParams.delete("zoom_error");
     router.replace(url.pathname + url.search, { scroll: false });
     return () => window.clearTimeout(dismiss);
@@ -2398,6 +2452,14 @@ export default function AddProductClient({
               webinar: {
                 slots: webinarSlots,
                 meeting_location: meetingLocation,
+                meeting_provider:
+                  meetingLocation === "Google Meet"
+                    ? "google_meet"
+                    : meetingLocation === "Zoom Meeting"
+                      ? "zoom"
+                      : "zoom",
+                auto_create_meeting: webinarAutoCreateMeeting,
+                static_join_url: webinarAutoCreateMeeting ? "" : webinarStaticJoinUrl.trim(),
                 time_zone: timeZone,
                 duration_mins: durationMins,
                 max_attendees: maxAttendees,
@@ -2454,6 +2516,8 @@ export default function AddProductClient({
     bookWithinDays,
     activeAvailabilityDays,
     webinarSlots,
+    webinarAutoCreateMeeting,
+    webinarStaticJoinUrl,
     fileLabel,
     confirmationSubject,
     confirmationBody,
@@ -3706,7 +3770,12 @@ export default function AddProductClient({
     requiresAudioDraftAndUpload &&
     (!productId || audioUploadInFlight || !audioUploadDone);
   const publishBlockedByMediaFlow = publishBlockedByVideoFlow || publishBlockedByAudioFlow;
-  const publishDisabled = saving || publishBlockedByMediaFlow;
+  const publishBlockedByWebinarZoom =
+    isWebinarFlow &&
+    webinarAutoCreateMeeting &&
+    meetingLocation !== "Google Meet" &&
+    !zoomConnected;
+  const publishDisabled = saving || publishBlockedByMediaFlow || publishBlockedByWebinarZoom;
   const dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
   const weekNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const monthTitle = blockMonth.toLocaleString("en-US", { month: "long", year: "numeric" });
@@ -3794,6 +3863,19 @@ export default function AddProductClient({
       e.webinarSettings = "Complete webinar settings before publishing.";
     } else if (!Number.isFinite(Number(maxAttendees)) || Number(maxAttendees) < 1) {
       e.webinarSettings = "Seats per slot must be at least 1.";
+    }
+    if (!e.webinarSettings && !webinarAutoCreateMeeting && !webinarStaticJoinUrl.trim()) {
+      e.webinarSettings =
+        "Turn on automatic meeting creation or enter a static join URL for buyers.";
+    }
+    if (
+      !e.webinarSettings &&
+      webinarAutoCreateMeeting &&
+      meetingLocation !== "Google Meet" &&
+      !zoomConnected
+    ) {
+      e.webinarSettings =
+        "Link your Zoom account below before publishing. Meetings are created on your Zoom host account.";
     }
     return e;
   };
@@ -5519,23 +5601,102 @@ export default function AddProductClient({
                 <span className="text-sm text-slate-400">seats/slot</span>
               </div>
             </div>
+            <div className="mt-4 space-y-3 rounded-xl border border-slate-100 bg-slate-50/80 p-4">
+              <p className="text-xs font-semibold text-slate-800">Meeting creation</p>
+              <label className="flex cursor-pointer items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={webinarAutoCreateMeeting}
+                  onChange={(e) => {
+                    setWebinarAutoCreateMeeting(e.target.checked);
+                    setProductFormErrors((p) => ({ ...p, webinarSettings: undefined }));
+                  }}
+                  className="mt-1 h-4 w-4 rounded border-slate-300 text-violet-600"
+                />
+                <span>
+                  <span className="text-sm font-semibold text-slate-800">
+                    Automatically create meeting when a buyer purchases
+                  </span>
+                  <span className="mt-0.5 block text-xs text-slate-500">
+                    When off, buyers use the static join link you provide (same link for every purchase).
+                  </span>
+                </span>
+              </label>
+              {!webinarAutoCreateMeeting ? (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-600">Static join URL</label>
+                  <input
+                    value={webinarStaticJoinUrl}
+                    onChange={(e) => {
+                      setWebinarStaticJoinUrl(e.target.value);
+                      setProductFormErrors((p) => ({ ...p, webinarSettings: undefined }));
+                    }}
+                    placeholder="https://…"
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none"
+                  />
+                </div>
+              ) : null}
+            </div>
           </section>
 
           <section className="rounded-xl border border-slate-200 bg-white p-4">
-            <h2 className="text-sm font-semibold text-slate-900">Generate Zoom links and notify buyers</h2>
+            <h2 className="text-sm font-semibold text-slate-900">
+              {meetingLocation === "Google Meet"
+                ? "Generate Meet links and notify buyers"
+                : "Generate Zoom links and notify buyers"}
+            </h2>
             <p className="mt-1 text-xs text-slate-500">
-              Creates missing Zoom links for this webinar and sends the join link to buyers (email + WhatsApp) and your owner email.
+              {meetingLocation === "Google Meet"
+                ? "Creates missing Meet links for registrations and notifies buyers (email + WhatsApp) and your owner email."
+                : "Creates missing Zoom meetings for registrations and sends join links to buyers (email + WhatsApp) and your owner email."}
             </p>
+
+            {webinarAutoCreateMeeting && meetingLocation !== "Google Meet" ? (
+              <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                <p className="text-xs font-semibold text-slate-800">Zoom account</p>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">
+                  Link your Zoom account so each purchase can create a meeting on your host account. Required
+                  before you publish or generate links.
+                  {checkingZoomConnection ? " Checking connection…" : ""}
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {zoomConnected ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-800 ring-1 ring-emerald-100">
+                      ✓ Linked
+                      {zoomEmail ? <span className="font-normal text-emerald-700">({zoomEmail})</span> : null}
+                    </span>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={startZoomConnect}
+                    disabled={!token}
+                    className="rounded-lg border border-violet-200 bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {zoomConnected ? "Reconnect Zoom" : "Link Zoom account"}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
             <button
               type="button"
-              disabled={webinarBackfillRunning || !token}
+              disabled={
+                webinarBackfillRunning ||
+                !token ||
+                (webinarAutoCreateMeeting && meetingLocation !== "Google Meet" && !zoomConnected)
+              }
               onClick={() => {
                 void generateWebinarLinksAndNotify();
               }}
-              className="mt-3 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+              className="mt-4 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
               {webinarBackfillRunning ? "Generating..." : "Generate links and send notifications"}
             </button>
+            {webinarAutoCreateMeeting && meetingLocation !== "Google Meet" && !zoomConnected ? (
+              <p className="mt-2 text-[11px] text-amber-700">
+                Link your Zoom account above to generate links or publish.
+              </p>
+            ) : null}
             {webinarBackfillMsg ? (
               <p className="mt-2 text-xs font-medium text-slate-700">{webinarBackfillMsg}</p>
             ) : null}
